@@ -170,6 +170,17 @@ def test_move():
         mcm301obj.close()
         exit()
 
+    for stage_num in (4,5):
+        print(f"Homing stage {stage_num}")
+        mcm301obj.home(stage_num)
+
+    time.sleep(5)
+
+    mcm301obj.move_absolute(4, 10000)
+    mcm301obj.move_absolute(5, 10000)
+
+    time.sleep(5)
+
     step_size = 1000
     for stage_num in [4, 5, 6]:
         result = mcm301obj.set_jog_params(stage_num, step_size)
@@ -192,7 +203,6 @@ When run as a script, a simple Tkinter app is created with just a LiveViewCanvas
 
 """
 if __name__ == "__main__":
-
     with TLCameraSDK() as sdk:
         camera_list = sdk.discover_available_cameras()
         with sdk.open_camera(camera_list[0]) as camera:
