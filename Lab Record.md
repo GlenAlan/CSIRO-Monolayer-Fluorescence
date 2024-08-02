@@ -9,10 +9,11 @@ Lachlan Catto and Glen Pearce's Lab Record
 
 # 2/8/24
 
-### We went through the Risk Assessment
+**We went through the Risk Assessment**  
 This included emergency exits, lab hazards and risk control strategies
 
-Today we familiarised ourselves with the microscope apparatus and SDK software. We setup a GitHub folder and organised the folders to suit the project. We created a python file and created our own code from the ground by modifying the code that Matt had setup for us. A python file was created for each task, namely camera viewing and stage movement. Within the stage movement file, we were able to move the stage in all 3 directions the desired step amount and make it go to the home positions.
+
+Today we familiarised ourselves with the microscope apparatus and SDK software. We setup a GitHub folder and organised the folders to suit the project. We created a project plan for how we are going to approach the project. We created a python file and created our own code from the ground by modifying the code that Matt had setup for us. A python file was created for each task, namely camera viewing and stage movement. Within the stage movement file, we were able to move the stage in all 3 directions the desired step amount and make it go to the home positions.
 
 We started considering how the monolayer locating algorithm was going to work. Some ideas included sweeping across and moving down once it detects an edge through colour or contrast recognition; taking photos as it does so including overlap and stitching the photos together at the end.
 
@@ -22,3 +23,4 @@ We started considering how the monolayer locating algorithm was going to work. S
 - [ ] Take photos
 - [ ] Save Photos
 - [ ] Get accurate location + coord system
+- [ ] Formalise project plan and steps
