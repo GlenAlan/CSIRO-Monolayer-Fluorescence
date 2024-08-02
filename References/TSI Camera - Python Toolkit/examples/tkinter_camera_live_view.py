@@ -37,9 +37,9 @@ try:
 except ImportError:
     import queue
     
-print('Running stage config....')
+""" print('Running stage config....')
 runfile('C:/Users/Admin/Documents/Programming/MCM301 SKD/Stage_Controller.py', wdir='C:/Users/Admin/Documents/Programming/MCM301 SKD')
-print('Stage config complete.')
+print('Stage config complete.') """
     
 
 """ LiveViewCanvas
@@ -178,8 +178,8 @@ class ImageAcquisitionThread(threading.Thread):
 def on_button_click(field):
     field.get()    
     
-def move_to(field, vel):
-    move(4, field.get(), vel)
+""" def move_to(field, vel):
+    move(4, field.get(), vel) """
     
 def grid_pos(obj, cl, rw, pdx, pdy):
     obj.grid(column=cl, row=rw, padx=pdx, pady=pdy)
@@ -213,8 +213,8 @@ if __name__ == "__main__":
     
             # Make X jog buttons
             field1 = make_fel(5)
-            button1 = make_but('X Jog >>>', 8, 1, '2', move_to(field1, vel))
-            grid_pos(button1, 6, 0, pdx = 0, pdy = 0)
+            #button1 = make_but('X Jog >>>', 8, 1, '2', move_to(field1, vel))
+            #grid_pos(button1, 6, 0, pdx = 0, pdy = 0)
             grid_pos(field1, 5, 0, pdx = 0, pdy = 0)
             
             field1a = make_fel(5)
