@@ -304,4 +304,5 @@ def move(stage, pos, vel):
     print("*** End ***")
 
 #main()
+test(5, 5)
 
