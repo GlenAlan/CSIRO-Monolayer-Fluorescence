@@ -62,7 +62,7 @@ class LiveViewCanvas(tk.Canvas):
             self._image = ImageTk.PhotoImage(master=self, image=image)
             if (self._image.width() != self._image_width) or (self._image.height() != self._image_height):
                 # resize the canvas to match the new image size
-                self._image_width = 1000 #self._image.width()
+                self._image_width = 500 #self._image.width()
                 self._image_height = 500 #self._image.height()
                 self.config(width=self._image_width, height=self._image_height)
             self.create_image(0, 0, image=self._image, anchor='nw')
@@ -198,49 +198,7 @@ if __name__ == "__main__":
             root.title(camera.name)
             image_acquisition_thread = ImageAcquisitionThread(camera)
             camera_widget = LiveViewCanvas(parent=root, image_queue=image_acquisition_thread.get_output_queue())
-            vel = 50
-    
-            # Make X jog buttons
-            field1 = make_fel(5)
-            #button1 = make_but('X Jog >>>', 8, 1, '2', move_to(field1, vel))
-            #grid_pos(button1, 6, 0, pdx = 0, pdy = 0)
-            grid_pos(field1, 5, 0, pdx = 0, pdy = 0)
-            
-            field1a = make_fel(5)
-            button1a = make_but('x Jog >', 8, 1, '2', on_button_click(field1a))
-            grid_pos(button1a, 4, 0, pdx = 0, pdy = 0)
-            grid_pos(field1a, 3, 0, pdx = 0, pdy = 0)
-            
-            button1b = make_but('Home X', 8, 1, '2', on_button_click(field1a))
-            button1c = make_but('Set Home', 8, 1, '2', on_button_click(field1a))
-            grid_pos(button1b, 2, 0, pdx = 0, pdy = 0)
-            grid_pos(button1c, 1, 0, pdx = 0, pdy = 0)
-
-
-
-
-            # Make Y jog buttons
-            field2 = make_fel(5)
-            button2 = make_but('Y Jog >>>', 8, 1, '2', on_button_click(field2))
-            grid_pos(button2, 6, 1, pdx = 0, pdy = 0)
-            grid_pos(field2, 5, 1, pdx = 0, pdy = 0)
-            
-            field2a = make_fel(5)
-            button2a = make_but('y Jog >', 8, 1, '2', on_button_click(field2a))
-            grid_pos(button2a, 4, 1, pdx = 0, pdy = 0)
-            grid_pos(field2a, 3, 1, pdx = 0, pdy = 0)
-            
-            button2b = make_but('Home Y', 8, 1, '2', on_button_click(field2a))
-            button2c = make_but('Set Home', 8, 1, '2', on_button_click(field2a))
-            grid_pos(button2b, 2, 1, pdx = 0, pdy = 0)
-            grid_pos(button2c, 1, 1, pdx = 0, pdy = 0)
-            
-            
-
-            for row in range(10):
-                root.grid_rowconfigure(row, weight=1)
-            for col in range(5):
-                root.grid_columnconfigure(col, weight=1)
+            vel = 50            
         
             print("Setting camera parameters...")
             camera.frames_per_trigger_zero_for_unlimited = 0
