@@ -34,9 +34,6 @@ from PIL import Image, ImageTk
 import typing
 import threading
 import queue
-    
-    
-
 
 
 class LiveViewCanvas(tk.Canvas):
