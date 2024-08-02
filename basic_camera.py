@@ -47,8 +47,8 @@ class LiveViewCanvas(tk.Canvas):
         self.image_queue = image_queue
         self._image_width = 0
         self._image_height = 0
+
         tk.Canvas.__init__(self, parent)
-        # self.pack(side = tk.LEFT, expand = True, fill = tk.BOTH)
         self.grid(column=0, row=0, rowspan=4, columnspan=2, sticky=tk.E)
         self._get_image()
 
@@ -163,24 +163,7 @@ class ImageAcquisitionThread(threading.Thread):
             self._mono_to_color_sdk.dispose()
 
 
-def on_button_click(field):
-    field.get()    
     
-""" def move_to(field, vel):
-    move(4, field.get(), vel) """
-    
-def grid_pos(obj, cl, rw, pdx, pdy):
-    obj.grid(column=cl, row=rw, padx=pdx, pady=pdy)
-    
-def make_but(txt, wd, ht, bord, com):
-    return tk.Button(root, text=txt, width=wd, height=ht, bd=bord, command=com)
-    
-def make_fel(wd):
-    return tk.Entry(width=wd)
-
-def make_lab(txt):
-    return 
- 
 """ Main
 
 When run as a script, a simple Tkinter app is created with just a LiveViewCanvas widget. 

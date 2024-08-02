@@ -2,7 +2,7 @@ from MCM301_COMMAND_LIB import *
 import time
 import random
 
-print("*** MCM301 device python example ***")
+print("*** MCM301 device python ***")
 mcm301obj = MCM301()
 
 devs = MCM301.list_devices()
