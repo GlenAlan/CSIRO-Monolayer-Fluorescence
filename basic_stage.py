@@ -30,7 +30,7 @@ for stage_num in [4, 5, 6]:
     else:
         print("set_jog_params:", step_size)
 
-for i in range(10):
+for i in range(20):
     stage_num, stage_direction = random.randint(4, 6), random.randint(0, 1)
     mcm301obj.move_jog(stage_num, stage_direction)
     print(f"Moivng stage {stage_num}, {'clockwise'*stage_direction + 'counter-clockwise'*(1-stage_direction)}")

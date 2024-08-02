@@ -113,7 +113,6 @@ class ImageAcquisitionThread(threading.Thread):
         self._stop_event = threading.Event()
 
     def get_output_queue(self):
-        # type: (type(None)) -> queue.Queue
         return self._image_queue
 
     def stop(self):
