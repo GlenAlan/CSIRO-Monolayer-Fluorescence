@@ -5,23 +5,7 @@ import threading
 import queue
 import time
 
-def create_blending_mask(img_shape, blend_width):
-    mask = np.zeros(img_shape[:2], dtype=np.float32)
-    h, w = img_shape[:2]
-    
-    if blend_width > 0:
-        for i in range(w):
-            mask[:, i] = min(i / blend_width, 1.0)
-        
-        for j in range(h):
-            mask[j, :] = np.minimum(mask[j, :], min(j / blend_width, 1.0))
-    
-    if len(img_shape) == 3 and img_shape[2] == 3:
-        mask = np.dstack([mask] * 3)
-    
-    return mask
-
-def add_image_to_canvas(canvas, image, center_coords, max_blend_width=50):
+def add_image_to_canvas(canvas, image, center_coords):
     img_height, img_width = image.shape[:2]
     canvas_height, canvas_width = canvas.shape[:2]
     
@@ -38,29 +22,22 @@ def add_image_to_canvas(canvas, image, center_coords, max_blend_width=50):
         canvas = new_canvas
 
     img_cropped = image[:canvas.shape[0] - y, :canvas.shape[1] - x]
-    
     roi = canvas[y:y + img_cropped.shape[0], x:x + img_cropped.shape[1]]
 
-    roi_mask = np.any(roi != 0, axis=-1)
-    img_mask = np.any(img_cropped != 0, axis=-1)
-    
-    combined_mask = roi_mask & img_mask
+    # Blending process
+    alpha_image = np.any(img_cropped != 0, axis=-1).astype(np.float32)
+    alpha_canvas = np.any(roi != 0, axis=-1).astype(np.float32)
 
-    overlap_height = np.sum(combined_mask, axis=0).max() if combined_mask.any() else 0
-    overlap_width = np.sum(combined_mask, axis=1).max() if combined_mask.any() else 0
-    blend_width = min(overlap_width, overlap_height, max_blend_width) if combined_mask.any() else 0
+    overlap = alpha_image * alpha_canvas
+    alpha_image[overlap > 0] /= 2
+    alpha_canvas[overlap > 0] /= 2
 
-    blend_mask = create_blending_mask(img_cropped.shape, blend_width)
+    blended = (roi * alpha_canvas[:, :, None] + img_cropped * alpha_image[:, :, None]).astype(np.uint8)
 
-    if combined_mask.any():
-        combined = (roi * (1 - blend_mask) + img_cropped * blend_mask).astype(np.uint8)
-    else:
-        combined = img_cropped
+    non_overlap_mask = alpha_image > alpha_canvas
+    blended[non_overlap_mask] = img_cropped[non_overlap_mask]
 
-    non_overlap_mask = img_mask & ~roi_mask
-    combined[non_overlap_mask] = img_cropped[non_overlap_mask]
-
-    canvas[y:y + combined.shape[0], x:x + combined.shape[1]] = combined
+    canvas[y:y + blended.shape[0], x:x + blended.shape[1]] = blended
 
     return canvas
 
@@ -81,7 +58,7 @@ def stitch_images(image_queue, canvas_queue):
 
 def producer(image_queue, image_paths, center_coordinates):
     for path, center in zip(image_paths, center_coordinates):
-        image = Image.open(path).convert("RGB")
+        image = cv2.imread(path)
         image_queue.put((image, center))
         time.sleep(5)
     image_queue.put(None)
@@ -109,7 +86,7 @@ def display_canvas(canvas_queue):
 
 if __name__ == "__main__":
     image_paths = ['Images/Screenshot 2024-07-16 154534.png']*5
-    center_coordinates = [(0, 0), (int(772*1.5)-10, 0), (0, int(630*1.5)-10), (int(772*1.5)-10, int(630*1.5)-10), (int(772*2.5)-10, int(630*1.5)-10)]
+    center_coordinates = [(0, 0), (int(772*1.5)-50, 0), (0, int(630*1.5)-50), (int(772*1.5)-50, int(630*1.5)-50), (int(772*2.5)-50, int(630*1.5)-50)]
 
     image_queue = queue.Queue()
     canvas_queue = queue.Queue()
