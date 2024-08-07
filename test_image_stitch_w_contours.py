@@ -5,7 +5,23 @@ import threading
 import queue
 import time
 
+def preprocess_image(image, brightness_threshold=90, contrast_increase=1.0):
+    # Convert to grayscale (ONLY RED)
+    gray = 0.5 * image[:, :, 2] + 0.0 * image[:, :, 1] + 0.0 * image[:, :, 0]
+    gray = gray.astype(np.uint8)
+    
+    # Increase contrast
+    contrasted = cv2.convertScaleAbs(gray, alpha=contrast_increase, beta=0)
+    
+    # Remove pixels below a certain brightness threshold
+    _, thresh = cv2.threshold(contrasted, brightness_threshold, 255, cv2.THRESH_TOZERO)
+    blur = cv2.blur(thresh, (5, 5))
+
+    
+    return blur
+
 def add_image_to_canvas(canvas, image, center_coords):
+
     img_height, img_width = image.shape[:2]
     canvas_height, canvas_width = canvas.shape[:2]
     
@@ -58,12 +74,36 @@ def stitch_images(image_queue, canvas_queue):
     
     # Save the final canvas
     cv2.imwrite('final_image.png', canvas)
+    
+    # Convert the final canvas to grayscale
+    gray = preprocess_image(canvas)  # Apply preprocessing step
+    _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+    
+    # Draw contours on the canvas
+    canvas_with_contours = canvas.copy()
+
+    # Find contours
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for i, contour in enumerate(contours):
+        M = cv2.moments(contour)
+        cx = int(M['m10']/M['m00'])
+        cy = int(M['m01']/M['m00'])
+        area = cv2.contourArea(contour)
+        print(f'Contour {i+1}: Center ({cx}, {cy}), Area: {area}')
+        canvas_with_contours = cv2.circle(canvas_with_contours, (cx, cy), 4, color=(0, 0, 0), thickness=-1)
+    
+    cv2.drawContours(canvas_with_contours, contours, -1, (0, 255, 0), 2)
+    
+    # Display the final image with contours
+    cv2.imshow('Contours', canvas_with_contours)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 def producer(image_queue, image_paths, center_coordinates):
     for path, center in zip(image_paths, center_coordinates):
         image = cv2.imread(path)
         image_queue.put((image, center))
-        time.sleep(5)
+        time.sleep(0.1)
     image_queue.put(None)
 
 def display_canvas(canvas_queue):
