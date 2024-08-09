@@ -7,3 +7,10 @@ Goal: Find fluorescent monolayers through communication of the light and stage w
 Stretch goal: Create an algorithm to identify location and size of monolayers automatically.
 - Use algorithm to identify location of monolayers based off image system.
 - Use algorithm to calculate area.
+
+GUI:
+- Calibration
+- Start + end
+- Image live view
+- Results
+- Focus
