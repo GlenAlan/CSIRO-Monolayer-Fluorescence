@@ -102,17 +102,16 @@ def get_scan_area(mcm301obj):
     return start, end
 
 def add_image_to_canvas(canvas, image, center_coords):
-
     img_height, img_width = image.shape[:2]
     canvas_height, canvas_width = canvas.shape[:2]
-    
+
     x_center, y_center = center_coords
     x = max(0, x_center - img_width // 2)
     y = max(0, y_center - img_height // 2)
-    
+
     new_canvas_height = max(canvas_height, y + img_height)
     new_canvas_width = max(canvas_width, x + img_width)
-    
+
     if new_canvas_height > canvas_height or new_canvas_width > canvas_width:
         new_canvas = np.zeros((new_canvas_height, new_canvas_width, 3), dtype=np.uint8)
         new_canvas[:canvas_height, :canvas_width] = canvas
@@ -121,7 +120,7 @@ def add_image_to_canvas(canvas, image, center_coords):
     img_cropped = image[:canvas.shape[0] - y, :canvas.shape[1] - x]
     roi = canvas[y:y + img_cropped.shape[0], x:x + img_cropped.shape[1]]
 
-    # Blending process
+    # Blending using addWeighted
     alpha_image = np.any(img_cropped != 0, axis=-1).astype(np.float32)
     alpha_canvas = np.any(roi != 0, axis=-1).astype(np.float32)
 
@@ -129,8 +128,7 @@ def add_image_to_canvas(canvas, image, center_coords):
     alpha_image[overlap > 0] /= 2
     alpha_canvas[overlap > 0] /= 2
 
-    blended = (roi * alpha_canvas[:, :, None] + img_cropped * alpha_image[:, :, None]).astype(np.uint8)
-
+    blended = cv2.addWeighted(roi, 0.5, img_cropped, 0.5, 0)
     non_overlap_mask = alpha_image > alpha_canvas
     blended[non_overlap_mask] = img_cropped[non_overlap_mask]
 
@@ -138,9 +136,12 @@ def add_image_to_canvas(canvas, image, center_coords):
 
     return canvas
 
-def stitch_images(frame_queue, canvas_queue):
+
+def stitch_and_display_images(frame_queue):
     canvas = np.zeros((500, 500, 3), dtype=np.uint8)
-    
+    fixed_size = (500, 500)
+    previous_canvas = None
+
     while True:
         item = frame_queue.get()
         if item is None:
@@ -149,33 +150,28 @@ def stitch_images(frame_queue, canvas_queue):
         image, center_coords = item
         image_np = np.array(image)
         canvas = add_image_to_canvas(canvas, image_np, center_coords)
-        canvas_queue.put(canvas.copy())
-    
-    canvas_queue.put(None)
-    
-    cv2.waitKey(0)
+
+        # Only update the display if the canvas has changed
+        if previous_canvas is None or not np.array_equal(previous_canvas, canvas):
+            canvas_height, canvas_width = canvas.shape[:2]
+            scale_factor = min(fixed_size[0] / canvas_width, fixed_size[1] / canvas_height, 1)
+            new_width = int(canvas_width * scale_factor)
+            new_height = int(canvas_height * scale_factor)
+            resized_canvas = cv2.resize(canvas, (new_width, new_height))
+            
+            display_canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
+            start_x = (fixed_size[0] - new_width) // 2
+            start_y = (fixed_size[1] - new_height) // 2
+            display_canvas[start_y:start_y + new_height, start_x:start_x + new_width] = resized_canvas
+
+            cv2.imshow('Stitched Image', display_canvas)
+            cv2.waitKey(30)  # Update display every 30 milliseconds
+
+            previous_canvas = canvas.copy()
+
     cv2.destroyAllWindows()
 
-def display_canvas(canvas_queue):
-    fixed_size = (500, 500)
-    while True:
-        canvas = canvas_queue.get()
-        if canvas is None:
-            break
-        
-        canvas_height, canvas_width = canvas.shape[:2]
-        scale_factor = min(fixed_size[0] / canvas_width, fixed_size[1] / canvas_height, 1)
-        new_width = int(canvas_width * scale_factor)
-        new_height = int(canvas_height * scale_factor)
-        resized_canvas = cv2.resize(canvas, (new_width, new_height))
-        
-        display_canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
-        start_x = (fixed_size[0] - new_width) // 2
-        start_y = (fixed_size[1] - new_height) // 2
-        display_canvas[start_y:start_y + new_height, start_x:start_x + new_width] = resized_canvas
-        
-        cv2.imshow('Stitched Image', display_canvas)
-        cv2.waitKey(1)
+
 
 
 def alg(mcm301obj, image_queue, frame_queue, start, end):
