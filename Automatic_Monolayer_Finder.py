@@ -27,6 +27,10 @@ confirmation_bits = (2147484928, 2147484930) # These bits indicate that the stag
 
 dist = 343200
 
+
+# TODO
+# FIX Nasty alg layout
+
 def stage_setup():
     mcm301obj = MCM301()
 
@@ -149,6 +153,7 @@ def stitch_and_display_images(frame_queue):
 
         image, center_coords = item
         image_np = np.array(image)
+        image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
         canvas = add_image_to_canvas(canvas, image_np, center_coords)
 
         # Only update the display if the canvas has changed
@@ -185,6 +190,9 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             frame_queue.put((frame, (int(x/171.6), int(y/171.6))))
             x += dist*direction
             move_and_wait(mcm301obj, (x, y))
+        time.sleep(0.3)
+        frame = image_queue.get(timeout=1000)
+        frame_queue.put((frame, (int(x/171.6), int(y/171.6))))
         y += dist
         move_and_wait(mcm301obj, (x, y))
         direction *= -1
@@ -194,7 +202,9 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             frame_queue.put((frame, (int(x/171.6), int(y/171.6))))
             x += dist*direction
             move_and_wait(mcm301obj, (x, y))
-            
+        time.sleep(0.3)
+        frame = image_queue.get(timeout=1000)
+        frame_queue.put((frame, (int(x/171.6), int(y/171.6))))
         y += dist
         move_and_wait(mcm301obj, (x, y))
         direction *= -1
