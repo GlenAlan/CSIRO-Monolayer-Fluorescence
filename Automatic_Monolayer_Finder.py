@@ -253,8 +253,6 @@ if __name__ == "__main__":
             image_acquisition_thread.stop()
             image_acquisition_thread.join()
 
-            stitching_thread.join()
-
             cv2.destroyAllWindows()
 
             print("Closing resources...")
