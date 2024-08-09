@@ -103,7 +103,7 @@ def producer(image_queue, image_paths, center_coordinates):
     for path, center in zip(image_paths, center_coordinates):
         image = cv2.imread(path)
         image_queue.put((image, center))
-        time.sleep(0.1)
+        time.sleep(3)
     image_queue.put(None)
 
 def display_canvas(canvas_queue):
