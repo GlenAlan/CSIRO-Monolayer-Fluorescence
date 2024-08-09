@@ -110,69 +110,63 @@ def add_image_to_canvas(canvas, image, center_coords):
     canvas_height, canvas_width = canvas.shape[:2]
 
     x_center, y_center = center_coords
+    x_start = max(0, x_center - img_width // 2)
+    y_start = max(0, y_center - img_height // 2)
 
-    # Calculate starting and ending indices for both canvas and image
-    x_start_canvas = max(0, x_center - img_width // 2)
-    y_start_canvas = max(0, y_center - img_height // 2)
-    x_end_canvas = min(canvas_width, x_start_canvas + img_width)
-    y_end_canvas = min(canvas_height, y_start_canvas + img_height)
+    x_end = x_start + img_width
+    y_end = y_start + img_height
 
-    x_start_image = max(0, -x_center + img_width // 2)
-    y_start_image = max(0, -y_center + img_height // 2)
-    x_end_image = x_start_image + (x_end_canvas - x_start_canvas)
-    y_end_image = y_start_image + (y_end_canvas - y_start_canvas)
+    canvas_height_needed = max(canvas_height, y_end)
+    canvas_width_needed = max(canvas_width, x_end)
 
-    # Use slicing and broadcasting for efficient merging
-    canvas_slice = canvas[y_start_canvas:y_end_canvas, x_start_canvas:x_end_canvas]
-    image_slice = image[y_start_image:y_end_image]
-    
-    # Optimize the merge operation using vectorized NumPy operations
-    np.putmask(canvas_slice, image_slice > 0, image_slice)
+    if canvas_height_needed > canvas_height or canvas_width_needed > canvas_width:
+        new_canvas = np.zeros((canvas_height_needed, canvas_width_needed, 3), dtype=np.uint8)
+        new_canvas[:canvas_height, :canvas_width] = canvas
+        canvas = new_canvas
 
+    canvas[y_start:y_end, x_start:x_end] = np.where(image > 0, image, canvas[y_start:y_end, x_start:x_end])
     return canvas
 
 
 def stitch_and_display_images(frame_queue, fixed_size=(500, 500)):
     canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
+    previous_canvas = None
 
-    def display_thread():
-        while True:
-            if not frame_queue.empty():
-                batch_frames = []
-                while not frame_queue.empty():
-                    item = frame_queue.get()
-                    if item is None:
-                        return  # Exit thread if sentinel value is received
-                    batch_frames.append(item)
+    while True:
+        batch_frames = []
+        while not frame_queue.empty():
+            item = frame_queue.get()
+            if item is None:
+                break
+            batch_frames.append(item)
 
-                for image, center_coords in batch_frames:
-                    image_np = np.array(image)
-                    image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
-                    add_image_to_canvas(canvas, image_np, center_coords)
+        if not batch_frames:
+            continue
 
-                # Avoid resizing if canvas size is already small
-                if canvas.shape[1] > fixed_size[0] or canvas.shape[0] > fixed_size[1]:
-                    scale_factor = min(fixed_size[0] / canvas.shape[1], fixed_size[1] / canvas.shape[0], 1)
-                    new_width = int(canvas.shape[1] * scale_factor)
-                    new_height = int(canvas.shape[0] * scale_factor)
-                    resized_canvas = cv2.resize(canvas, (new_width, new_height))
-                else:
-                    resized_canvas = canvas
+        for image, center_coords in batch_frames:
+            image_np = np.array(image)
+            image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
+            canvas = add_image_to_canvas(canvas, image_np, center_coords)
 
-                display_canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
-                start_x = (fixed_size[0] - resized_canvas.shape[1]) // 2
-                start_y = (fixed_size[1] - resized_canvas.shape[0]) // 2
-                display_canvas[start_y:start_y + resized_canvas.shape[0], start_x:start_x + resized_canvas.shape[1]] = resized_canvas
+        # Only update the display if the canvas has changed
+        if previous_canvas is None or not np.array_equal(previous_canvas, canvas):
+            canvas_height, canvas_width = canvas.shape[:2]
+            scale_factor = min(fixed_size[0] / canvas_width, fixed_size[1] / canvas_height, 1)
+            new_width = int(canvas_width * scale_factor)
+            new_height = int(canvas_height * scale_factor)
+            resized_canvas = cv2.resize(canvas, (new_width, new_height))
 
-                cv2.imshow('Stitched Image', display_canvas)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
+            display_canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
+            start_x = (fixed_size[0] - new_width) // 2
+            start_y = (fixed_size[1] - new_height) // 2
+            display_canvas[start_y:start_y + new_height, start_x:start_x + new_width] = resized_canvas
 
-        cv2.destroyAllWindows()
+            cv2.imshow('Stitched Image', display_canvas)
+            cv2.waitKey(30)  # Update display every 30 milliseconds
 
-    # Start the display thread
-    display_thread_instance = threading.Thread(target=display_thread, daemon=True)
-    display_thread_instance.start()
+            previous_canvas = canvas.copy()
+
+    cv2.destroyAllWindows()
 
 
 
@@ -207,6 +201,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         move_and_wait(mcm301obj, (x, y))
         direction *= -1
 
+
     
 """ Main
 
@@ -236,7 +231,9 @@ if __name__ == "__main__":
 
             frame_queue = queue.Queue()
 
-            stitch_and_display_images(frame_queue)
+            stitching_thread = threading.Thread(target=stitch_and_display_images, args=(frame_queue,))
+
+            stitching_thread.start()
 
 
             mcm301obj = stage_setup()
@@ -251,6 +248,8 @@ if __name__ == "__main__":
             print("Waiting for image acquisition thread to finish...")
             image_acquisition_thread.stop()
             image_acquisition_thread.join()
+
+            stitching_thread.join()
 
             cv2.destroyAllWindows()
 
