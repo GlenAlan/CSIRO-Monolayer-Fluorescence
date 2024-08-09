@@ -1,0 +1,12 @@
+Exception in thread Thread-2 (alg):
+Traceback (most recent call last):
+  File "C:\Users\Admin\Documents\Programming\CSIRO-Monolayer-Fluorescence\.conda\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\Admin\Documents\Programming\CSIRO-Monolayer-Fluorescence\.conda\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "c:\Users\Admin\Documents\Programming\CSIRO-Monolayer-Fluorescence\Automatic_Monolayer_Finder.py", line 108, in alg
+    print(get_pos(mcm301obj, stages=(5)))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\Documents\Programming\CSIRO-Monolayer-Fluorescence\Automatic_Monolayer_Finder.py", line 86, in get_pos
+    for stage in stages:
+TypeError: 'int' object is not iterable
