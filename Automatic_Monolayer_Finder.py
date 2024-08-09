@@ -229,7 +229,7 @@ if __name__ == "__main__":
 
             frame_queue = queue.Queue()
 
-            stitching_thread = threading.Thread(target=stitch_and_display_images, args=(frame_queue))
+            stitching_thread = threading.Thread(target=stitch_and_display_images, args=(frame_queue,))
 
             stitching_thread.start()
 
