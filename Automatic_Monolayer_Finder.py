@@ -110,51 +110,43 @@ def add_image_to_canvas(canvas, image, center_coords):
     canvas_height, canvas_width = canvas.shape[:2]
 
     x_center, y_center = center_coords
-    x = max(0, x_center - img_width // 2)
-    y = max(0, y_center - img_height // 2)
+    x_start = max(0, x_center - img_width // 2)
+    y_start = max(0, y_center - img_height // 2)
 
-    new_canvas_height = max(canvas_height, y + img_height)
-    new_canvas_width = max(canvas_width, x + img_width)
+    x_end = x_start + img_width
+    y_end = y_start + img_height
 
-    if new_canvas_height > canvas_height or new_canvas_width > canvas_width:
-        new_canvas = np.zeros((new_canvas_height, new_canvas_width, 3), dtype=np.uint8)
+    canvas_height_needed = max(canvas_height, y_end)
+    canvas_width_needed = max(canvas_width, x_end)
+
+    if canvas_height_needed > canvas_height or canvas_width_needed > canvas_width:
+        new_canvas = np.zeros((canvas_height_needed, canvas_width_needed, 3), dtype=np.uint8)
         new_canvas[:canvas_height, :canvas_width] = canvas
         canvas = new_canvas
 
-    img_cropped = image[:canvas.shape[0] - y, :canvas.shape[1] - x]
-    roi = canvas[y:y + img_cropped.shape[0], x:x + img_cropped.shape[1]]
-
-    # Blending using addWeighted
-    alpha_image = np.any(img_cropped != 0, axis=-1).astype(np.float32)
-    alpha_canvas = np.any(roi != 0, axis=-1).astype(np.float32)
-
-    overlap = alpha_image * alpha_canvas
-    alpha_image[overlap > 0] /= 2
-    alpha_canvas[overlap > 0] /= 2
-
-    blended = cv2.addWeighted(roi, 0.5, img_cropped, 0.5, 0)
-    non_overlap_mask = alpha_image > alpha_canvas
-    blended[non_overlap_mask] = img_cropped[non_overlap_mask]
-
-    canvas[y:y + blended.shape[0], x:x + blended.shape[1]] = blended
-
+    canvas[y_start:y_end, x_start:x_end] = np.where(image > 0, image, canvas[y_start:y_end, x_start:x_end])
     return canvas
 
 
-def stitch_and_display_images(frame_queue):
-    canvas = np.zeros((500, 500, 3), dtype=np.uint8)
-    fixed_size = (500, 500)
+def stitch_and_display_images(frame_queue, fixed_size=(500, 500)):
+    canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
     previous_canvas = None
 
     while True:
-        item = frame_queue.get()
-        if item is None:
-            break
+        batch_frames = []
+        while not frame_queue.empty():
+            item = frame_queue.get()
+            if item is None:
+                break
+            batch_frames.append(item)
 
-        image, center_coords = item
-        image_np = np.array(image)
-        image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
-        canvas = add_image_to_canvas(canvas, image_np, center_coords)
+        if not batch_frames:
+            continue
+
+        for image, center_coords in batch_frames:
+            image_np = np.array(image)
+            image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
+            canvas = add_image_to_canvas(canvas, image_np, center_coords)
 
         # Only update the display if the canvas has changed
         if previous_canvas is None or not np.array_equal(previous_canvas, canvas):
@@ -163,7 +155,7 @@ def stitch_and_display_images(frame_queue):
             new_width = int(canvas_width * scale_factor)
             new_height = int(canvas_height * scale_factor)
             resized_canvas = cv2.resize(canvas, (new_width, new_height))
-            
+
             display_canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
             start_x = (fixed_size[0] - new_width) // 2
             start_y = (fixed_size[1] - new_height) // 2
