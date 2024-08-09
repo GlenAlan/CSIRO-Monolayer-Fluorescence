@@ -106,8 +106,8 @@ def get_scan_area(mcm301obj):
     return start, end
 
 def compute_canvas_dimensions(start, end):
-    width = int((end[0] - start[0]) * 171.6 * 1.05)
-    height = int((end[1] - start[1]) * 171.6 * 1.05)
+    width = int((end[0] - start[0]) / 171.6 * 1.05)
+    height = int((end[1] - start[1]) / 171.6 * 1.05)
     return width, height
 
 def add_image_to_canvas(canvas, image, center_coords):
