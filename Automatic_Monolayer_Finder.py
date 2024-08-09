@@ -207,7 +207,6 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         move_and_wait(mcm301obj, (x, y))
         direction *= -1
 
-
     
 """ Main
 
