@@ -165,7 +165,7 @@ def stitch_and_display_images(frame_queue):
             display_canvas[start_y:start_y + new_height, start_x:start_x + new_width] = resized_canvas
 
             cv2.imshow('Stitched Image', display_canvas)
-            cv2.waitKey(30)  # Update display every 30 milliseconds
+            cv2.waitKey(0)  # Update display every 30 milliseconds
 
             previous_canvas = canvas.copy()
 
@@ -182,7 +182,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         while get_pos(mcm301obj, stages=(4,))[0] < end[0]:
             time.sleep(0.3)
             frame = image_queue.get(timeout=1000)
-            frame_queue.put((frame, (int(x/171.6), int(y/171.6))))
+            frame_queue.put((frame, (int(2*x/171.6), int(y/171.6))))
             x += dist*direction
             move_and_wait(mcm301obj, (x, y))
         y += dist
@@ -191,7 +191,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         while get_pos(mcm301obj, stages=(4,))[0] > start[0]:
             time.sleep(0.3)
             frame = image_queue.get(timeout=1000)
-            frame_queue.put((frame, (int(x/171.6), int(y/171.6))))
+            frame_queue.put((frame, (int(2*x/171.6), int(y/171.6))))
             x += dist*direction
             move_and_wait(mcm301obj, (x, y))
             
@@ -228,13 +228,10 @@ if __name__ == "__main__":
             image_queue = image_acquisition_thread.get_output_queue()
 
             frame_queue = queue.Queue()
-            canvas_queue = queue.Queue()
 
-            stitching_thread = threading.Thread(target=stitch_images, args=(frame_queue, canvas_queue))
-            display_thread = threading.Thread(target=display_canvas, args=(canvas_queue,))
+            stitching_thread = threading.Thread(target=stitch_and_display_images, args=(frame_queue,))
 
             stitching_thread.start()
-            display_thread.start()
 
 
             mcm301obj = stage_setup()
@@ -251,7 +248,6 @@ if __name__ == "__main__":
             image_acquisition_thread.join()
 
             stitching_thread.join()
-            display_thread.join()
 
             cv2.destroyAllWindows()
 
