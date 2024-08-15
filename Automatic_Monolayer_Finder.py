@@ -105,54 +105,70 @@ def get_scan_area(mcm301obj):
     end = [max(x_1, x_2), max(y_1, y_2)]
     return start, end
 
-def compute_canvas_dimensions(start, end):
-    width = int((end[0] - start[0]) / 171.6 * 1.05)
-    height = int((end[1] - start[1]) / 171.6 * 1.05)
-    return width, height
-
 def add_image_to_canvas(canvas, image, center_coords):
     img_height, img_width = image.shape[:2]
-    x_center, y_center = center_coords
+    canvas_height, canvas_width = canvas.shape[:2]
 
+    x_center, y_center = center_coords
     x_start = max(0, x_center - img_width // 2)
     y_start = max(0, y_center - img_height // 2)
-    
-    x_end = min(canvas.shape[1], x_start + img_width)
-    y_end = min(canvas.shape[0], y_start + img_height)
-    
-    canvas[y_start:y_end, x_start:x_end] = np.where(image[:(y_end - y_start), :(x_end - x_start)] > 0,
-                                                     image[:(y_end - y_start), :(x_end - x_start)],
-                                                     canvas[y_start:y_end, x_start:x_end])
+
+    x_end = x_start + img_width
+    y_end = y_start + img_height
+
+    canvas_height_needed = max(canvas_height, y_end)
+    canvas_width_needed = max(canvas_width, x_end)
+
+    if canvas_height_needed > canvas_height or canvas_width_needed > canvas_width:
+        new_canvas = np.zeros((canvas_height_needed, canvas_width_needed, 3), dtype=np.uint8)
+        new_canvas[:canvas_height, :canvas_width] = canvas
+        canvas = new_canvas
+
+    canvas[y_start:y_end, x_start:x_end] = np.where(image > 0, image, canvas[y_start:y_end, x_start:x_end])
     return canvas
 
-def stitch_and_display_images(frame_queue, canvas, fixed_size=(500, 500), update_interval=5):
-    update_counter = 0
+
+def stitch_and_display_images(frame_queue, fixed_size=(500, 500)):
+    canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
+    previous_canvas = None
 
     while True:
+        batch_frames = []
         while not frame_queue.empty():
-            image, center_coords = frame_queue.get()
-            if image is None:
-                return
+            item = frame_queue.get()
+            if item is None:
+                break
+            batch_frames.append(item)
 
-            image_np = cv2.rotate(np.array(image), cv2.ROTATE_90_CLOCKWISE)
+        if not batch_frames:
+            continue
+
+        for image, center_coords in batch_frames:
+            image_np = np.array(image)
+            image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
             canvas = add_image_to_canvas(canvas, image_np, center_coords)
 
-            update_counter += 1
-            if update_counter % update_interval == 0:
-                canvas_height, canvas_width = canvas.shape[:2]
-                scale_factor = min(fixed_size[0] / canvas_width, fixed_size[1] / canvas_height, 1)
-                resized_canvas = cv2.resize(canvas, (int(canvas_width * scale_factor), int(canvas_height * scale_factor)), interpolation=cv2.INTER_AREA)
+        # Only update the display if the canvas has changed
+        if previous_canvas is None or not np.array_equal(previous_canvas, canvas):
+            canvas_height, canvas_width = canvas.shape[:2]
+            scale_factor = min(fixed_size[0] / canvas_width, fixed_size[1] / canvas_height, 1)
+            new_width = int(canvas_width * scale_factor)
+            new_height = int(canvas_height * scale_factor)
+            resized_canvas = cv2.resize(canvas, (new_width, new_height))
 
-                display_canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
-                start_x = (fixed_size[0] - resized_canvas.shape[1]) // 2
-                start_y = (fixed_size[1] - resized_canvas.shape[0]) // 2
-                display_canvas[start_y:start_y + resized_canvas.shape[0], start_x:start_x + resized_canvas.shape[1]] = resized_canvas
+            display_canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
+            start_x = (fixed_size[0] - new_width) // 2
+            start_y = (fixed_size[1] - new_height) // 2
+            display_canvas[start_y:start_y + new_height, start_x:start_x + new_width] = resized_canvas
 
-                cv2.imshow('Stitched Image', display_canvas)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    return
+            cv2.imshow('Stitched Image', display_canvas)
+            cv2.waitKey(30)  # Update display every 30 milliseconds
+
+            previous_canvas = canvas.copy()
 
     cv2.destroyAllWindows()
+
+
 
 
 def alg(mcm301obj, image_queue, frame_queue, start, end):
@@ -213,18 +229,15 @@ if __name__ == "__main__":
             image_acquisition_thread.start()
             image_queue = image_acquisition_thread.get_output_queue()
 
-
             frame_queue = queue.Queue()
+
+            stitching_thread = threading.Thread(target=stitch_and_display_images, args=(frame_queue,))
+
+            stitching_thread.start()
 
 
             mcm301obj = stage_setup()
             start, end = get_scan_area(mcm301obj)
-
-            canvas_width, canvas_height = compute_canvas_dimensions(start, end)
-            canvas = np.zeros((canvas_height, canvas_width, 3), dtype=np.uint8)
-            stitching_thread = threading.Thread(target=stitch_and_display_images, args=(frame_queue, canvas, (500,500), 5), daemon=True).start()
-
-            stitching_thread = threading.Thread(target=stitch_and_display_images, args=(frame_queue,))
 
             alg_thread = threading.Thread(target=alg, args=(mcm301obj, image_queue, frame_queue, start, end))
             alg_thread.start()
