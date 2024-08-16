@@ -21,6 +21,62 @@ from PIL import Image, ImageTk
 
 from MCM301_COMMAND_LIB import *
 
+confirmation_bits = (2147484928, 2147484930)
+
+
+def stage_setup():
+    """
+    Initializes and sets up the stage for movement. It first creates an instance of the MCM301 object
+    and checks for connected devices. If a device is found, it connects to the first one in the list.
+    The function then checks if the device is open and if not, it closes the connection and exits the script.
+
+    After successfully opening the device, it homes the stages (in this case, stages 4 and 5).
+    Homing is the process of moving the stages to a reference position. The function waits for the
+    stages to complete homing by checking the status bits until they indicate that the stage is no longer moving.
+
+    Returns:
+        mcm301obj (MCM301): The initialized MCM301 object ready for further stage operations.
+    """
+    mcm301obj = MCM301()
+
+    # List connected devices
+    devs = MCM301.list_devices()
+    print(devs)
+    if len(devs) <= 0:
+        print('There is no devices connected')
+        exit()
+
+    # Connect to the first available device
+    device_info = devs[0]
+    sn = device_info[0]
+    print("connect ", sn)
+    hdl = mcm301obj.open(sn, 115200, 3)
+    if hdl < 0:
+        print("open ", sn, " failed. hdl is ", hdl)
+        exit()
+
+    # Ensure the device is successfully opened
+    if mcm301obj.is_open(sn) == 0:
+        print("MCM301IsOpen failed")
+        mcm301obj.close()
+        exit()
+
+    # Home the stages
+    for stage_num in (4,5):
+        print(f"Homing stage {stage_num}")
+        mcm301obj.home(stage_num)
+
+    # Wait for homing to complete by checking the status bits
+    bits_x, bits_y = [0], [0]
+    while bits_x[0] not in confirmation_bits or bits_y[0] not in confirmation_bits:
+        mcm301obj.get_mot_status(4, [0], bits_x)
+        mcm301obj.get_mot_status(5, [0], bits_y)
+        # print(f"x: {bits_x}, y:{bits_y}")
+   
+    print("Homing complete")
+    print("Stage setup complete")
+
+    return mcm301obj
 
 def move_and_wait(mcm301obj, pos, stage=(4, 5)):
     """
@@ -94,6 +150,8 @@ if __name__ == "__main__":
     root = tk.Tk()
     root.title('Camera with controls - development')
 
+    mcm301obj = stage_setup()
+
     # Create a Notebook (tab container)
     notebook = ttk.Notebook(root)
     notebook.pack(expand=True, fill="both")
@@ -149,21 +207,24 @@ if __name__ == "__main__":
 
     # Create buttons and place them in the grid
     # Buttons required - origin, set start, set end
-    for i in range(len(btn_names)):
-        button = tk.Button(frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = move_and_wait(pos=btn_pos_nav[i])) #, command = command_list[1]
+    for i, btn_pos in enumerate(btn_pos_nav):
+        button = tk.Button(frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = move_and_wait(mcm301obj, pos=btn_pos)) #, command = command_list[1]
         button.grid(row = btn_positions[i][0], column = btn_positions[i][1], padx=30, pady=30) # padding around the buttons, not the text in the buttons.
     
     # Positions
     # Positions required - Live view of X,Y, and Z (focus)
-    for i in range(len(pos_names)):
-        label = tk.Label(frame_pos, text = pos_names[i], padx = 10, pady = 5)
-        label.grid(row = i, column = 0)
-    for i in range(len(pos_names)):
-        label = tk.Label(frame_pos, text = f'{get_pos(stages=i+3)} nm', padx = 5, bg='lightgrey', width = 10)
-        label.grid(row = i, column = 1)
-    for i in range(2):
-        label = tk.Label(frame_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
-        label.grid(row = i, column = 1)
+
+    def update():
+        for i, name in enumerate(pos_names):
+            label = tk.Label(frame_pos, text = name, padx = 10, pady = 5)
+            label.grid(row = i, column = 0)
+        for i in range(len(pos_names)):
+            label = tk.Label(frame_pos, text = f'{get_pos(mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
+            label.grid(row = i, column = 1)
+        for i in range(2):
+            label = tk.Label(frame_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
+            label.grid(row = i, column = 2)
+        root.after(100, update)
     
 
     # Calibration tab
@@ -177,6 +238,8 @@ if __name__ == "__main__":
     # Device tab
     tab_devices = ttk.Frame(notebook)
     notebook.add(tab_devices, text="Devices")
+
+    update()
     
     # Runs the window application mainloop
     root.mainloop()
