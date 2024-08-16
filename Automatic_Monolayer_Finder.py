@@ -291,8 +291,8 @@ def stitch_and_display_images(frame_queue, start, end):
 
     # Calculate the size of the output canvas based on the scan area and the camera dimensions
     output_size = [
-        int((end[0] - start[0]) / nm_per_px + camera_dims[0] * 2),  # Width of the canvas
-        int((end[1] - start[1]) / nm_per_px + camera_dims[1] * 2)   # Height of the canvas
+        int((end[0] - start[0]) / nm_per_px + camera_dims[0] * 2.5),  # Width of the canvas
+        int((end[1] - start[1]) / nm_per_px + camera_dims[1] * 2.5)   # Height of the canvas
     ]
    
     # Initialize the canvas
@@ -337,6 +337,7 @@ def stitch_and_display_images(frame_queue, start, end):
             # Add the image to the canvas and save
             canvas = add_image_to_canvas(canvas, image_np, center_coords)
             cv2.imwrite("stitch.png", canvas)
+            time.sleep(1)
 
 
 
