@@ -152,9 +152,20 @@ def get_pos(mcm301obj, stages=[4, 5, 6]):
     return pos
 
 
-
-
 def get_scan_area(mcm301obj):
+    """
+    Retrieves the start and end positions for the scan algorithm.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+   
+    Returns:
+        start, end: Lists of positions corresponding to the start and end position,
+                    in nanometers.
+   
+    The function queries the current encoder value for each specified stage,
+    converts that value into nanometers, and returns the positions as a list.
+    """
     input("Please move the stage to one corner of the sample. Press ENTER when complete")
     x_1, y_1 = get_pos(mcm301obj, (4, 5))
     input("Please move the stage to the opposite corner of the sample. Press ENTER when complete")
@@ -228,7 +239,6 @@ def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     return canvas
 
 
-
 def stitch_and_display_images(frame_queue, start, end):
     """
     Continuously stitches and displays images from a queue, blending them into a larger canvas
@@ -271,7 +281,6 @@ def stitch_and_display_images(frame_queue, start, end):
             # Convert the image to a numpy array
             image_np = np.array(image)
 
-
             # Ensure the image has an alpha channel (if not, add one)
             if image_np.shape[2] == 3:
                 image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2RGBA)
@@ -289,8 +298,6 @@ def stitch_and_display_images(frame_queue, start, end):
             canvas = add_image_to_canvas(canvas, image_np, center_coords)
             cv2.imwrite("stitch.png", canvas)
             time.sleep(1)
-
-
 
 
 def alg(mcm301obj, image_queue, frame_queue, start, end):
@@ -367,11 +374,10 @@ if __name__ == "__main__":
             print("Waiting for image acquisition thread to finish...")
             image_acquisition_thread.stop()
             image_acquisition_thread.join()
-
+            # stitching_thread.stop() # This needs a stop function
             stitching_thread.join()
 
             cv2.destroyAllWindows()
-
             print("Closing resources...")
 
     print("App terminated. Goodbye!")
