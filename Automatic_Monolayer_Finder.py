@@ -161,53 +161,117 @@ def get_scan_area(mcm301obj):
     end = [max(x_1, x_2), max(y_1, y_2)]
     return start, end
 
-def add_image_to_canvas(canvas, image, center_coords):
+def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
+    """
+    Adds an image to the canvas at the specified center coordinates with full opacity.
+    Only overlapping regions are blended using transparency.
+
+    Args:
+        canvas (numpy.ndarray): The canvas where the image will be overlaid.
+        image (numpy.ndarray): The image to be added.
+        center_coords (tuple): The (x, y) coordinates of the center of the image on the canvas.
+        alpha (float): The blending factor for overlapping regions, ranging from 0 (transparent) to 1 (opaque).
+
+    Returns:
+        numpy.ndarray: The updated canvas with the image blended in.
+    """
+
     img_height, img_width = image.shape[:2]
     canvas_height, canvas_width = canvas.shape[:2]
 
+    # Calculate start and end coordinates for the overlay
     x_center, y_center = center_coords
     x_start = max(0, x_center - img_width // 2)
     y_start = max(0, y_center - img_height // 2)
+    x_end = min(canvas_width, x_start + img_width)
+    y_end = min(canvas_height, y_start + img_height)
 
-    x_end = x_start + img_width
-    y_end = y_start + img_height
+    # Calculate the region of the canvas and image that will be used
+    x_offset = x_start - (x_center - img_width // 2)
+    y_offset = y_start - (y_center - img_height // 2)
+    region_width = x_end - x_start
+    region_height = y_end - y_start
 
-    canvas_height_needed = max(canvas_height, y_end)
-    canvas_width_needed = max(canvas_width, x_end)
+    # Extract the relevant regions from the canvas and the image
+    canvas_region = canvas[y_start:y_end, x_start:x_end]
+    image_region = image[y_offset:y_offset + region_height, x_offset:x_offset + region_width]
 
-    if canvas_height_needed > canvas_height or canvas_width_needed > canvas_width:
-        new_canvas = np.zeros((canvas_height_needed, canvas_width_needed, 3), dtype=np.uint8)
-        new_canvas[:canvas_height, :canvas_width] = canvas
-        canvas = new_canvas
+    # Create masks for blending
+    mask_canvas = (canvas_region > 0).astype(np.uint8)
+    mask_image = (image_region > 0).astype(np.uint8)
 
-    canvas[y_start:y_end, x_start:x_end] = np.where(image > 0, image, canvas[y_start:y_end, x_start:x_end])
+    # Blend only the overlapping regions
+    blended_region = cv2.addWeighted(canvas_region, 1 - alpha, image_region, alpha, 0)
+
+    # Overlay the image with full opacity
+    canvas[y_start:y_end, x_start:x_end] = np.where(mask_image, image_region, canvas_region)
+
+    # Apply the blended region only where both images overlap
+    overlap_mask = mask_canvas & mask_image
+    canvas[y_start:y_end, x_start:x_end] = np.where(overlap_mask, blended_region, canvas[y_start:y_end, x_start:x_end])
+
     return canvas
 
 
+
+
 def stitch_and_display_images(frame_queue, start, end):
-    output_size = [int((end[0]-start[0])/nm_per_px + camera_dims[0]*2), int((end[1]-start[1])/nm_per_px + camera_dims[1]*2)]
+    """
+    Continuously stitches and displays images from a queue, blending them into a larger canvas.
+
+    Args:
+        frame_queue (queue.Queue): A queue containing tuples of images and their corresponding center coordinates.
+        start (tuple): The (x, y) starting coordinates of the scan area in nanometers.
+        end (tuple): The (x, y) ending coordinates of the scan area in nanometers.
+    
+    This function extracts images from a queue, calculates their correct positions on a larger canvas based on their 
+    center coordinates, and then blends them onto the canvas using the `add_image_to_canvas` function. The function 
+    continues running in a loop, updating the canvas as new images are received.
+    """
+
+    # Calculate the size of the output canvas based on the scan area and the camera dimensions
+    output_size = [
+        int((end[0] - start[0]) / nm_per_px + camera_dims[0] * 2),  # Width of the canvas
+        int((end[1] - start[1]) / nm_per_px + camera_dims[1] * 2)   # Height of the canvas
+    ]
+    
+    # Initialize the canvas with zeros (black background) with the calculated size
     canvas = np.zeros((output_size[1], output_size[0], 3), dtype=np.uint8)
 
+    # Variable to store the previous state of the canvas (if needed for future enhancements)
     previous_canvas = None
 
     while True:
+        # Collect a batch of frames from the queue
         batch_frames = []
         while not frame_queue.empty():
             item = frame_queue.get()
             if item is None:
-                break
+                break  # Exit the loop if a None is received
             batch_frames.append(item)
 
+        # If no frames were collected, continue to the next iteration
         if not batch_frames:
             continue
 
+        # Process each frame in the collected batch
         for image, center_coords_raw in batch_frames:
+            # Convert the image to a numpy array
             image_np = np.array(image)
-            center_coords = (int((center_coords_raw[0] - start[0])/nm_per_px + camera_dims[0]), int((center_coords_raw[1] - start[1])/nm_per_px + camera_dims[1]))
-            #image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+            
+            # Calculate the coordinates on the canvas where the image center should be placed
+            center_coords = (
+                int((center_coords_raw[0] - start[0]) / nm_per_px + camera_dims[0]),  # X coordinate
+                int((center_coords_raw[1] - start[1]) / nm_per_px + camera_dims[1])   # Y coordinate
+            )
+            
+            # Rotate the image 90 degrees clockwise (if required for alignment)
             image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
+            
+            # Add the image to the canvas, blending it with any existing images
             canvas = add_image_to_canvas(canvas, image_np, center_coords)
             cv2.imwrite("stitch.jpg", canvas)
+
 
 
 
