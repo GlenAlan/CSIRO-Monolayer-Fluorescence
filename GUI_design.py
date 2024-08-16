@@ -208,7 +208,7 @@ if __name__ == "__main__":
     # Create buttons and place them in the grid
     # Buttons required - origin, set start, set end
     for i, btn_pos in enumerate(btn_pos_nav):
-        button = tk.Button(frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = move_and_wait(mcm301obj, pos=btn_pos)) #, command = command_list[1]
+        button = tk.Button(frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(mcm301obj, pos=btn_pos)) #, command = command_list[1]
         button.grid(row = btn_positions[i][0], column = btn_positions[i][1], padx=30, pady=30) # padding around the buttons, not the text in the buttons.
     
     # Positions
