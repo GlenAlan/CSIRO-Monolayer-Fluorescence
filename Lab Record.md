@@ -41,6 +41,8 @@ Next week I will continue working on the GUI, creating buttons used for navigati
 - [ ] Speed up image stitching
 - [ ] Finalise basic implementation
 - [ ] Fix disgusting algorithm code
+- [ ] Offset coordinate system such that pixel coords start at 0
+- [ ] Predefine canvas size for stitched image
 - [ ] Create GUI
 - [ ] Add camera rotation calibration
 
