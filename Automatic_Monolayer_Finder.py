@@ -26,7 +26,7 @@ import numpy as np
 # These bits indicate that the stage is no longer moving.
 confirmation_bits = (2147484928, 2147484930)
 
-dist = 343200
+dist = 343000
 camera_dims = (2448, 2048)
 nm_per_px = 171.6
 
@@ -242,93 +242,119 @@ def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
 def stitch_and_display_images(frame_queue, start, end):
     """
     Continuously stitches and displays images from a queue, blending them into a larger canvas
-    that includes an alpha channel for transparency.
-
+    that includes an alpha channel for transparency. Saves the final stitched image when all frames are processed.
+    
     Args:
         frame_queue (queue.Queue): A queue containing tuples of images and their corresponding center coordinates.
         start (tuple): The (x, y) starting coordinates of the scan area in nanometers.
         end (tuple): The (x, y) ending coordinates of the scan area in nanometers.
-   
-    This function extracts images from a queue, calculates their correct positions on a larger canvas based on their
-    center coordinates, and then blends them onto the canvas using the `add_image_to_canvas` function. The function
-    continues running in a loop, updating the canvas as new images are received.
+        output_filename (str): The filename where the final stitched image will be saved.
     """
-
+    
     # Calculate the size of the output canvas based on the scan area and the camera dimensions
     output_size = [
         int((end[0] - start[0]) / nm_per_px + camera_dims[0] * 2.5),  # Width of the canvas
         int((end[1] - start[1]) / nm_per_px + camera_dims[1] * 2.5)   # Height of the canvas
     ]
-   
+    
     # Initialize the canvas
     canvas = np.zeros((output_size[1], output_size[0], 4), dtype=np.uint8)  # 4 channels (RGBA)
 
     while True:
-        # Collect a batch of frames from the queue
-        batch_frames = []
-        while not frame_queue.empty():
-            item = frame_queue.get()
-            if item is None:
-                break  # Exit the loop if None is received
-            batch_frames.append(item)
+        # Get the next item from the frame queue
+        item = frame_queue.get()
+        
+        if item is None:
+            # Signal received that all frames are processed
+            cv2.imwrite("final.png", canvas)
+            print(f"Final stitched image saved")
+            break
+        
+        image, center_coords_raw = item
+        
+        # Convert the image to a numpy array and ensure it has an alpha channel
+        image_np = np.array(image)
+        if image_np.shape[2] == 3:
+            image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2RGBA)
+        
+        # Calculate the coordinates on the canvas where the image center should be placed
+        center_coords = (
+            int((center_coords_raw[0] - start[0]) / nm_per_px + camera_dims[0]),  # X coordinate
+            int((center_coords_raw[1] - start[1]) / nm_per_px + camera_dims[1])   # Y coordinate
+        )
+        
+        # Rotate the image 90 degrees clockwise
+        image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
+        
+        # Add the image to the canvas
+        canvas = add_image_to_canvas(canvas, image_np, center_coords)
+        cv2.imwrite("stitch.png", canvas)
 
-        # If no frames were collected, continue to the next iteration
-        if not batch_frames:
-            continue
-
-        # Process each frame in the collected batch
-        for image, center_coords_raw in batch_frames:
-            # Convert the image to a numpy array
-            image_np = np.array(image)
-
-            # Ensure the image has an alpha channel (if not, add one)
-            if image_np.shape[2] == 3:
-                image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2RGBA)
-
-            # Calculate the coordinates on the canvas where the image center should be placed
-            center_coords = (
-                int((center_coords_raw[0] - start[0]) / nm_per_px + camera_dims[0]),  # X coordinate
-                int((center_coords_raw[1] - start[1]) / nm_per_px + camera_dims[1])   # Y coordinate
-            )
-           
-            # Rotate the image 90 degrees clockwise
-            image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
-           
-            # Add the image to the canvas and save
-            canvas = add_image_to_canvas(canvas, image_np, center_coords)
-            cv2.imwrite("stitch.png", canvas)
-            time.sleep(1)
 
 
 def alg(mcm301obj, image_queue, frame_queue, start, end):
+    """
+    Runs the main scanning algorithm to capture and process images across a defined area.
+    
+    Args:
+        mcm301obj (MCM301): The stage controller object.
+        image_queue (queue.Queue): Queue containing images captured by the camera.
+        frame_queue (queue.Queue): Queue to store images along with their positions for stitching.
+        start (tuple): Starting coordinates (x, y) in nanometers.
+        end (tuple): Ending coordinates (x, y) in nanometers.
+    """
+    
+    def capture_and_store_frame(x, y):
+        """
+        Captures a frame from the image queue and stores it with its position in the frame queue.
+        
+        Args:
+            x (int): The x-coordinate in nanometers.
+            y (int): The y-coordinate in nanometers.
+        """
+        time.sleep(0.3)
+        frame = image_queue.get(timeout=1000)
+        frame_queue.put((frame, (x, y)))
+
+    def scan_line(x, y, direction, x_end):
+        """
+        Scans a single line in the current direction, capturing images along the way.
+        
+        Args:
+            x (int): The current x-coordinate in nanometers.
+            y (int): The current y-coordinate in nanometers.
+            direction (int): The scanning direction (1 for forward, -1 for backward).
+            x_end (int): The x-coordinate to stop scanning at.
+            
+        Returns:
+            int: The updated x-coordinate after completing the line scan.
+        """
+        while (direction == 1 and x < x_end) or (direction == -1 and x > start[0]):
+            capture_and_store_frame(x, y)
+            x += dist * direction
+            move_and_wait(mcm301obj, (x, y))
+        
+        # Capture final frame at the line end
+        capture_and_store_frame(x, y)
+        
+        return x
+    
+    # Start scanning
     move_and_wait(mcm301obj, start)
     x, y = start
     direction = 1
-    while get_pos(mcm301obj, stages=(5,))[0] < end[1]:
-        while get_pos(mcm301obj, stages=(4,))[0] < end[0]:
-            time.sleep(0.3)
-            frame = image_queue.get(timeout=1000)
-            frame_queue.put((frame, (x, y)))
-            x += dist*direction
-            move_and_wait(mcm301obj, (x, y))
-        time.sleep(0.3)
-        frame = image_queue.get(timeout=1000)
-        frame_queue.put((frame, (x, y)))
+    
+    while y < end[1]:
+        x = scan_line(x, y, direction, end[0])
+        
+        # Move to the next line
         y += dist
         move_and_wait(mcm301obj, (x, y))
+        
+        # Reverse direction for the next line scan
         direction *= -1
-        while get_pos(mcm301obj, stages=(4,))[0] > start[0]:
-            time.sleep(0.3)
-            frame = image_queue.get(timeout=1000)
-            frame_queue.put((frame, (x, y)))
-            x += dist*direction
-            move_and_wait(mcm301obj, (x, y))
-        time.sleep(0.3)
-        frame = image_queue.get(timeout=1000)
-        frame_queue.put((frame, (x, y)))
-        y += dist
-        move_and_wait(mcm301obj, (x, y))
-        direction *= -1
+
+    frame_queue.put(None)
 
    
 """ Main
@@ -354,8 +380,6 @@ if __name__ == "__main__":
             print("Starting image acquisition thread...")
             image_acquisition_thread.start()
             image_queue = image_acquisition_thread.get_output_queue()
-            frame = image_queue.get(timeout=1000)
-            frame.save("test.jpg")
 
             frame_queue = queue.Queue()
 

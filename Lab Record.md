@@ -37,15 +37,17 @@ I started designing and coding the GUI for viewing the image and controlling the
 Next week I will continue working on the GUI, creating buttons used for navigation on the image and text displaying the position that the image will be in based off its locating from ThorLabs. I will also create a calibration tab that is used for manually calibrating the start and end points for the sweeping algorithm.
 
 ### Next week
-- [ ] Formalise Project Plan
-- [ ] Speed up image stitching
+- [X] Formalise Project Plan
+- [X] Speed up image stitching
 - [ ] Finalise basic implementation
 - [ ] Fix disgusting algorithm code
-- [ ] Offset coordinate system such that pixel coords start at 0
-- [ ] Predefine canvas size for stitched image
+- [X] Offset coordinate system such that pixel coords start at 0
+- [X] Predefine canvas size for stitched image
 - [ ] Create GUI
 - [ ] Add camera rotation calibration
 - [ ] Update License
-- [ ] Fix color conversion
+- [X] Fix color conversion
 
 # 16/8/24
+
+We created a more detailed project plan
