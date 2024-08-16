@@ -23,10 +23,12 @@ import queue
 import cv2
 import numpy as np
 
-confirmation_bits = (2147484928, 2147484930) # These bits indicate that the stage is no longer moving.
+# These bits indicate that the stage is no longer moving.
+confirmation_bits = (2147484928, 2147484930)
 
 dist = 343200
 camera_dims = (2448, 2048)
+nm_per_px = 171.6
 
 
 # TODO
@@ -182,8 +184,10 @@ def add_image_to_canvas(canvas, image, center_coords):
     return canvas
 
 
-def stitch_and_display_images(frame_queue, fixed_size=(500, 500)):
-    canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
+def stitch_and_display_images(frame_queue, start, end):
+    output_size = [int((end[0]-start[0])/nm_per_px + camera_dims[0]*2), int((end[1]-start[1])/nm_per_px + camera_dims[1]*2)]
+    canvas = np.zeros((output_size[1], output_size[0], 3), dtype=np.uint8)
+
     previous_canvas = None
 
     while True:
@@ -197,30 +201,13 @@ def stitch_and_display_images(frame_queue, fixed_size=(500, 500)):
         if not batch_frames:
             continue
 
-        for image, center_coords in batch_frames:
+        for image, center_coords_raw in batch_frames:
             image_np = np.array(image)
+            center_coords = (int((center_coords_raw[0] - start[0])/nm_per_px + camera_dims[0]), int((center_coords_raw[1] - start[1])/nm_per_px + camera_dims[1]))
+            #image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
             image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
             canvas = add_image_to_canvas(canvas, image_np, center_coords)
-
-        # Only update the display if the canvas has changed
-        if previous_canvas is None or not np.array_equal(previous_canvas, canvas):
-            canvas_height, canvas_width = canvas.shape[:2]
-            scale_factor = min(fixed_size[0] / canvas_width, fixed_size[1] / canvas_height, 1)
-            new_width = int(canvas_width * scale_factor)
-            new_height = int(canvas_height * scale_factor)
-            resized_canvas = cv2.resize(canvas, (new_width, new_height))
-
-            display_canvas = np.zeros((fixed_size[1], fixed_size[0], 3), dtype=np.uint8)
-            start_x = (fixed_size[0] - new_width) // 2
-            start_y = (fixed_size[1] - new_height) // 2
-            display_canvas[start_y:start_y + new_height, start_x:start_x + new_width] = resized_canvas
-
-            cv2.imshow('Stitched Image', display_canvas)
-            cv2.waitKey(30)  # Update display every 30 milliseconds
-
-            previous_canvas = canvas.copy()
-
-    cv2.destroyAllWindows()
+            cv2.imwrite("stitch.jpg", canvas)
 
 
 
@@ -233,24 +220,24 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         while get_pos(mcm301obj, stages=(4,))[0] < end[0]:
             time.sleep(0.3)
             frame = image_queue.get(timeout=1000)
-            frame_queue.put((frame, (int(x/171.6), int(y/171.6))))
+            frame_queue.put((frame, (x, y)))
             x += dist*direction
             move_and_wait(mcm301obj, (x, y))
         time.sleep(0.3)
         frame = image_queue.get(timeout=1000)
-        frame_queue.put((frame, (int(x/171.6), int(y/171.6))))
+        frame_queue.put((frame, (x, y)))
         y += dist
         move_and_wait(mcm301obj, (x, y))
         direction *= -1
         while get_pos(mcm301obj, stages=(4,))[0] > start[0]:
             time.sleep(0.3)
             frame = image_queue.get(timeout=1000)
-            frame_queue.put((frame, (int(x/171.6), int(y/171.6))))
+            frame_queue.put((frame, (x, y)))
             x += dist*direction
             move_and_wait(mcm301obj, (x, y))
         time.sleep(0.3)
         frame = image_queue.get(timeout=1000)
-        frame_queue.put((frame, (int(x/171.6), int(y/171.6))))
+        frame_queue.put((frame, (x, y)))
         y += dist
         move_and_wait(mcm301obj, (x, y))
         direction *= -1
@@ -287,13 +274,11 @@ if __name__ == "__main__":
 
             frame_queue = queue.Queue()
 
-            stitching_thread = threading.Thread(target=stitch_and_display_images, args=(frame_queue,))
-
-            stitching_thread.start()
-
-
             mcm301obj = stage_setup()
             start, end = get_scan_area(mcm301obj)
+
+            stitching_thread = threading.Thread(target=stitch_and_display_images, args=(frame_queue, start, end))
+            stitching_thread.start()
 
             alg_thread = threading.Thread(target=alg, args=(mcm301obj, image_queue, frame_queue, start, end))
             alg_thread.start()
