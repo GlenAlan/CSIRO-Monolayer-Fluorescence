@@ -26,6 +26,7 @@ import numpy as np
 confirmation_bits = (2147484928, 2147484930) # These bits indicate that the stage is no longer moving.
 
 dist = 343200
+camera_dims = (2448, 2048)
 
 
 # TODO
@@ -281,6 +282,8 @@ if __name__ == "__main__":
             print("Starting image acquisition thread...")
             image_acquisition_thread.start()
             image_queue = image_acquisition_thread.get_output_queue()
+            frame = image_queue.get(timeout=1000)
+            frame.save("test.jpg")
 
             frame_queue = queue.Queue()
 

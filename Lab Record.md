@@ -45,5 +45,7 @@ Next week I will continue working on the GUI, creating buttons used for navigati
 - [ ] Predefine canvas size for stitched image
 - [ ] Create GUI
 - [ ] Add camera rotation calibration
+- [ ] Update License
+- [ ] Fix color conversion
 
 # 16/8/24
