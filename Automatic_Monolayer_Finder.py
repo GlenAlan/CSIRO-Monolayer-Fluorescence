@@ -266,7 +266,7 @@ def stitch_and_display_images(frame_queue, start, end):
         
         if item is None:
             # Signal received that all frames are processed
-            cv2.imwrite("final.png", canvas)
+            cv2.imwrite("Images/final.png", canvas)
             print(f"Final stitched image saved")
             break
         
@@ -288,7 +288,7 @@ def stitch_and_display_images(frame_queue, start, end):
         
         # Add the image to the canvas
         canvas = add_image_to_canvas(canvas, image_np, center_coords)
-        cv2.imwrite("stitch.png", canvas)
+        cv2.imwrite("Images/stitch.png", canvas)
 
 
 
