@@ -62,6 +62,8 @@ I continued working on the GUI, adding buttons for movement and labels for viewi
 
 ### Next Week
 - [ ] Add camera rotation calibration
+- [ ] Add live camera view to GUI in main and calibration tabs
+- [ ] Start on a basic flow for the GUI
 - [ ] Update License
 - [ ] Post processing with OpenCV
 - [ ] Create contours with OpenCV
