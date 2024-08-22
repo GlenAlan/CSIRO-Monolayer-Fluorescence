@@ -39,8 +39,8 @@ Next week I will continue working on the GUI, creating buttons used for navigati
 ### Next week
 - [X] Formalise Project Plan
 - [X] Speed up image stitching
-- [ ] Finalise basic implementation
-- [ ] Fix disgusting algorithm code
+- [X] Finalise basic implementation
+- [X] Fix disgusting algorithm code
 - [X] Offset coordinate system such that pixel coords start at 0
 - [X] Predefine canvas size for stitched image
 - [ ] Create GUI
@@ -55,6 +55,14 @@ Next week I will continue working on the GUI, creating buttons used for navigati
 We created a more detailed project plan
 
 ### Glen
+This week we wrote up a detailed project plan and discussed the timeline. I then continued to work on the backend code where I added detailed comments to the main code. I then modified the image stitching and generation code to place images more accurately and blend them better. I fixed the color conversion and made the algorithm function much neater and professional.
 
 ### Lachlan
 I continued working on the GUI, adding buttons for movement and labels for viewing live positions in nm. I attempted to add a zoomed-in photo that you could move around using crop and resize functions in PhotoImage. I successfully created an image that was zoomed in to the desired amount, but the buttons I made did not move the viewing position of the photo. Part of the problem was the image was only called once but never updated. I had to add an infinite loop that constantly updated the photo. This still did not work but I used this as a solution to the live position text. I had a similar problem with the live view not displaying so I created an infinite loop through a function that called itself after 100ms. This function was called once to initiate it. I coded on my personal computer so the code did not immediately work when we transferred it to the desktop connected to the ThorLabs equipment and tested it on that. We were quickly able to identify the errors and missing parts to complete the code.
+
+### Next Week
+- [ ] Add camera rotation calibration
+- [ ] Update License
+- [ ] Post processing with OpenCV
+- [ ] Create contours with OpenCV
+- [ ] Speed up processing
