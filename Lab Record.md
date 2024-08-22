@@ -44,6 +44,8 @@ Next week I will continue working on the GUI, creating buttons used for navigati
 - [X] Offset coordinate system such that pixel coords start at 0
 - [X] Predefine canvas size for stitched image
 - [ ] Create GUI
+- [X] Add movements buttons to GUI
+- [X] View live position on GUI
 - [ ] Add camera rotation calibration
 - [ ] Update License
 - [X] Fix color conversion
@@ -51,3 +53,8 @@ Next week I will continue working on the GUI, creating buttons used for navigati
 # 16/8/24
 
 We created a more detailed project plan
+
+### Glen
+
+### Lachlan
+I continued working on the GUI, adding buttons for movement and labels for viewing live positions in nm. I attempted to add a zoomed-in photo that you could move around using crop and resize functions in PhotoImage. I successfully created an image that was zoomed in to the desired amount, but the buttons I made did not move the viewing position of the photo. Part of the problem was the image was only called once but never updated. I had to add an infinite loop that constantly updated the photo. This still did not work but I used this as a solution to the live position text. I had a similar problem with the live view not displaying so I created an infinite loop through a function that called itself after 100ms. This function was called once to initiate it. I coded on my personal computer so the code did not immediately work when we transferred it to the desktop connected to the ThorLabs equipment and tested it on that. We were quickly able to identify the errors and missing parts to complete the code.
