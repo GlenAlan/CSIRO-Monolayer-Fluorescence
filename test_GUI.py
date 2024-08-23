@@ -3,12 +3,17 @@ from tkinter import ttk, filedialog
 import random
 from PIL import Image, ImageTk
 
-
+'''
+Class for running tkinter root
+'''
 class ImageDisplay:
+    '''
+    Initialising for creating tabs, labels and initial images.
+    '''
     def __init__(self, root):
         # Initialize the main window
         self.root = root
-        self.root.title("Rolling a die")
+        self.root.title("Image display and rolling a die")
 
         # Create a Notebook (tab container)
         notebook = ttk.Notebook(self.root)
@@ -52,7 +57,7 @@ class ImageDisplay:
         self.create_control_buttons()
 
     '''
-    Random number generator
+    Random number generator for die.
     '''
     def randNum(self):
         self.lbl_roll['text'] = random.randint(1,6)
@@ -70,11 +75,11 @@ class ImageDisplay:
                     int((self.region[3] - self.region[1]) * self.zoom_factor)),
                     Image.LANCZOS) #resizes it to zoom into the cropped area - not dependent on location, just width and height
         self.tk_image_zoom = ImageTk.PhotoImage(resized_image)
-        # canvas.delete("all") #could have something to do with needing to delete specific image before creating it.
         self.canvas.create_image(0, 0, anchor = tk.NW, image = self.tk_image_zoom)
-        print('Test to see if function works')
 
-    # Create a button that moves the image in x and y by 50 pixels
+    '''
+    Movement function for button that moves the image in x and y by 50 pixels
+    '''
     def move(self, dx=0, dy=0):
         self.region[0] += 50*dx
         self.region[2] += 50*dx
@@ -83,12 +88,15 @@ class ImageDisplay:
         print(self.region)
         self.update_image()
 
+    '''
+    Creates the buttons
+    '''
     def create_control_buttons(self):
         button_frame = tk.Frame(self.tab1)
         button_frame.pack(pady=10)
 
-        self.btn_up = tk.Button(button_frame, text="Up", command = lambda: self.move(dy=-1))
-        self.btn_up.grid(row=0, column=1)
+        btn_up = tk.Button(button_frame, text="Up", command = lambda: self.move(dy=-1))
+        btn_up.grid(row=0, column=1)
 
         btn_left = tk.Button(button_frame, text="Left", command = lambda: self.move(dx=-1))
         btn_left.grid(row=1, column=0)
