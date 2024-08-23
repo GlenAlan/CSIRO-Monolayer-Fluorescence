@@ -1,7 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, filedialog
 import random
-from PIL import Image, ImageTk
+import math
+from PIL import Image, ImageDraw, ImageTk
 
 '''
 Class for running tkinter root
@@ -66,6 +67,8 @@ class ImageDisplay:
         self.create_control_buttons()
 
         self.create_sliders()
+
+        self.create_360_wheel()
 
     '''
     Random number generator for die.
@@ -137,6 +140,91 @@ class ImageDisplay:
                            variable=self.dummy_var2, command=self.update_var2)
         slider2.grid(row=1, column=1, padx=20, pady=10)
 
+    def create_360_wheel(self):
+        wheel_frame = ttk.Frame(self.tab3)
+        wheel_frame.grid(padx=20, pady=20)
+
+        wheel_label = ttk.Label(wheel_frame, text="360 Degree Wheel (Dummy Variable 2):")
+        wheel_label.pack()
+
+        # Create a canvas for the 360-degree wheel
+        self.canvas = tk.Canvas(wheel_frame, width=200, height=200, bg="white")
+        self.canvas.pack()
+
+        # Set up image parameters
+        self.radius = 80  # Radius of the wheel
+        self.center_x = 100  # Center X of the wheel
+        self.center_y = 100  # Center Y of the wheel
+
+        # Create a blank image with transparency
+        self.image = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
+        self.draw = ImageDraw.Draw(self.image)
+
+        # Draw the anti-aliased wheel circle
+        self.draw_anti_aliased_wheel()
+
+        # Convert the image to Tkinter-compatible format
+        self.tk_image = ImageTk.PhotoImage(self.image)
+
+        # Display the wheel on the canvas
+        self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+
+        # Draw the initial pointer
+        self.pointer_line = self.canvas.create_line(self.center_x, self.center_y,
+                                                    self.center_x + self.radius, self.center_y,
+                                                    width=2, fill="red")
+
+        # Bind mouse events to drag the wheel
+        self.canvas.bind("<B1-Motion>", self.update_wheel)
+
+        # Entry box for manually setting the angle
+        self.angle_entry = tk.Entry(wheel_frame, width=5)
+        self.angle_entry.pack(pady=10)
+        self.angle_entry.insert(0, "0")
+        self.angle_entry.bind("<Return>", self.set_angle_from_entry)
+
+    def draw_anti_aliased_wheel(self):
+        # Draw the circle for the wheel with anti-aliasing
+        self.draw.ellipse(
+            [self.center_x - self.radius, self.center_y - self.radius,
+             self.center_x + self.radius, self.center_y + self.radius],
+            outline="black", width=2
+        )
+
+    def update_wheel(self, event):
+        # Calculate angle from center to current mouse position
+        dx = event.x - self.center_x
+        dy = event.y - self.center_y
+        angle = math.degrees(math.atan2(dy, dx)) % 360
+
+        # Update the pointer line position
+        end_x = self.center_x + self.radius * math.cos(math.radians(angle))
+        end_y = self.center_y + self.radius * math.sin(math.radians(angle))
+        self.canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
+
+
+        # Update the dummy variable 2
+        self.dummy_var2.set(angle)
+        self.angle_entry.delete(0, tk.END)
+        self.angle_entry.insert(0, f"{angle:.2f}")
+        print(f"Dummy Variable 2 updated to: {angle:.2f} degrees")
+    
+    def set_angle_from_entry(self, event):
+        # Get the angle from the entry box
+        try:
+            angle = float(self.angle_entry.get()) % 360
+        except ValueError:
+            angle = 0
+
+        # Update the pointer line based on the entered angle
+        end_x = self.center_x + self.radius * math.cos(math.radians(angle))
+        end_y = self.center_y + self.radius * math.sin(math.radians(angle))
+        self.canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
+
+        # Update the dummy variable 2
+        self.dummy_var2.set(angle)
+        print(f"Dummy Variable 2 set to: {angle:.2f} degrees")
+    
     def update_var1(self, value):
         print(f"Dummy Variable 1 updated to: {value}")
 
