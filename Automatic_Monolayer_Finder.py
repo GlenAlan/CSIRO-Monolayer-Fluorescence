@@ -370,7 +370,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         frame = image_queue.get(timeout=1000)
         r = random.randint(0, 4)
         if r != 0:
-            frame = Image.open("Images/test_image{r}.jpg")
+            frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
 
         ###################################################################################################################################
