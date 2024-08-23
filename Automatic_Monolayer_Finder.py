@@ -83,7 +83,7 @@ def stage_setup():
         # print(f"x: {bits_x}, y:{bits_y}")
    
     print("Homing complete")
-    print("Stage setup complete")
+    print("Stage setup complete\n")
 
     return mcm301obj
 
@@ -172,6 +172,7 @@ def get_scan_area(mcm301obj):
     x_2, y_2 = get_pos(mcm301obj, (4, 5))
     start = [min(x_1, x_2), min(y_1, y_2)]
     end = [max(x_1, x_2), max(y_1, y_2)]
+    print()
     return start, end
 
 
@@ -266,14 +267,17 @@ def stitch_and_display_images(frame_queue, start, end):
         
         if item is None:
             # Signal received that all frames are processed
+            print("Image stitching complete")
+            print("Saving final image...")
             cv2.imwrite("Images/final.png", canvas)
-            print(f"Final stitched image saved")
+            print("Save complete")
             break
         
         image, center_coords_raw = item
         
         # Convert the image to a numpy array and ensure it has an alpha channel
         image_np = np.array(image)
+        image_np = image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
         if image_np.shape[2] == 3:
             image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2RGBA)
         
@@ -290,6 +294,52 @@ def stitch_and_display_images(frame_queue, start, end):
         canvas = add_image_to_canvas(canvas, image_np, center_coords)
         cv2.imwrite("Images/stitch.png", canvas)
 
+    post_processing(canvas)
+
+
+def post_processing(canvas, contrast=1.0, threshold=60):
+    post_image = canvas.copy()
+    # Convert to More red less green
+    # We are in BGR
+    post_image = 0.10 * post_image[:, :, 2] + -0.5 * post_image[:, :, 1] + 0.9 * post_image[:, :, 0]
+    post_image = np.clip(post_image, 0, None)
+    post_image = post_image.astype(np.uint8)
+    post_image = cv2.blur(post_image, (5, 5))
+    
+    # Increase contrast
+    post_image = cv2.convertScaleAbs(post_image, alpha=contrast, beta=0)
+
+    # Remove pixels below a certain brightness threshold
+    _, post_image = cv2.threshold(post_image, threshold, 255, cv2.THRESH_TOZERO)
+    #_, post_image = cv2.threshold(post_image, 1, 255, cv2.THRESH_BINARY)
+
+    print("Saving post processed image...")
+    cv2.imwrite("Images/processed.png", post_image)
+    print("Saved!")
+
+    # Draw contours on the canvas
+    contour_image = canvas.copy()
+
+    print("Locating Monolayers... \n")
+    # Find contours
+    contours, _ = cv2.findContours(post_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for i, contour in enumerate(contours):
+        M = cv2.moments(contour)
+        if M['m00'] != 0:
+            cx = int(M['m10']/M['m00'])
+            cy = int(M['m01']/M['m00'])
+        else:
+            cx, cy = 0, 0
+        area = cv2.contourArea(contour)
+        print(f'Monolayer {i+1}: Center ({cx}, {cy}), Area: {area}')
+        contour_image = cv2.circle(contour_image, (cx, cy), 7, color=(255, 0, 255, 255), thickness=-1)
+    
+    cv2.drawContours(contour_image, contours, -1, (255, 0, 0, 255), 3)
+    
+    # Display the final image with contours
+    print("\nSaving image with monolayers...")
+    cv2.imwrite("Images/contour.png", contour_image)
+    print("Saved!")
 
 
 def alg(mcm301obj, image_queue, frame_queue, start, end):
@@ -312,7 +362,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             x (int): The x-coordinate in nanometers.
             y (int): The y-coordinate in nanometers.
         """
-        time.sleep(0.3)
+        time.sleep(0.5)
         frame = image_queue.get(timeout=1000)
         frame_queue.put((frame, (x, y)))
 
@@ -354,6 +404,8 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         # Reverse direction for the next line scan
         direction *= -1
 
+    print("\nImage capture complete!")
+    print("Waiting for image processing to complete...")
     frame_queue.put(None)
 
    
@@ -392,7 +444,6 @@ if __name__ == "__main__":
             alg_thread = threading.Thread(target=alg, args=(mcm301obj, image_queue, frame_queue, start, end))
             alg_thread.start()
 
-            print("App starting")
             root.mainloop()
 
             print("Waiting for image acquisition thread to finish...")
