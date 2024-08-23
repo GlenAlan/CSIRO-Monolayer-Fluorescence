@@ -13,8 +13,6 @@ from MCM301_COMMAND_LIB import *
 import time
 import random
 
-from custom_definitions import *
-
 import tkinter as tk
 from PIL import Image, ImageTk
 import typing
