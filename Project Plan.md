@@ -14,9 +14,9 @@ Our idea for the implementation of this is
 - Take photos during the scan 
 - Convert stage coordinates to camera pixels
 - Stitch the images together
-- **Blend the image boundaries**
-- Add camera exposure control (and other params)
-- Automate for consistent exposure
+- Blend the image boundaries
+- **Add camera exposure control (and other params)**
+- **Automate for consistent exposure**
 - Image post processing
   - Greyscale (with bias)
   - Bright/Contrast
@@ -26,8 +26,8 @@ Our idea for the implementation of this is
 - Draw and list all monolayers on sample
 - Find location and area of monolayers
 - Sort by largest
-- Add a goto command (move to a specific monolayer)
-- Add a consistent start point (or some method of location reproducibility)
+- **Add a goto command (move to a specific monolayer)**
+- **Add a consistent start point (or some method of location reproducibility)**
 - GUI (ensure all necessary steps are accessible in the GUI)
   - Image live view
   - Image live stitched view
