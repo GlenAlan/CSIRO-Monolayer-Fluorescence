@@ -181,12 +181,6 @@ if __name__ == "__main__":
         "Zoom out \'some amount\'",
     ]
     btn_positions = [[0, 0], [0, 1], [1, 0], [1, 1]]
-    # command_list = [
-    #     insert_move_left_command
-    #     insert_move_right_command
-    #     insert_command_3
-    #     insert_command_4
-    # ]
     pos_names = [
         "Pos X",
         "Pos Y",
@@ -208,13 +202,12 @@ if __name__ == "__main__":
     # Create buttons and place them in the grid
     # Buttons required - origin, set start, set end
     for i, btn_pos in enumerate(btn_pos_nav):
-        button = tk.Button(frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(mcm301obj, pos=btn_pos)) #, command = command_list[1]
+        button = tk.Button(frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(mcm301obj, pos=btn_pos))
         button.grid(row = btn_positions[i][0], column = btn_positions[i][1], padx=30, pady=30) # padding around the buttons, not the text in the buttons.
     
-    # Positions
-    # Positions required - Live view of X,Y, and Z (focus)
-
     def update():
+        # Positions
+        # Positions required - Live view of X,Y, and Z (focus)
         for i, name in enumerate(pos_names):
             label = tk.Label(frame_pos, text = name, padx = 10, pady = 5)
             label.grid(row = i, column = 0)
