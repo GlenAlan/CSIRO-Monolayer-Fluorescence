@@ -67,10 +67,15 @@ I continued working on the GUI, adding buttons for movement and labels for viewi
 - [ ] Update License
 - [X] Post processing with OpenCV
 - [X] Create contours with OpenCV
+- [X] Monolayer Class
 - [ ] Speed up processing
 
 
 # 23/08/24
+
+### Glen
+This week I managed implement the post processing of the stitched image to enable us to identify monolayers. I added a monolayer class as to have a neat way of storing the data.
+etc... save image snippits, fancy greyscale, issues etc.
 
 
 ### Next Week  
