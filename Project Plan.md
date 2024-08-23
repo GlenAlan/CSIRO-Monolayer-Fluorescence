@@ -80,3 +80,7 @@ Week 4 (23/08):
 Week 5 (30/08):
 - GUI image live stitched view
 - GUI progress bar
+- Autofocus
+- Crystal Stats
+- Table output
+- Data visualisation
