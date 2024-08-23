@@ -277,7 +277,7 @@ def stitch_and_display_images(frame_queue, start, end):
         
         # Convert the image to a numpy array and ensure it has an alpha channel
         image_np = np.array(image)
-        image_np = image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+        image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
         if image_np.shape[2] == 3:
             image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2RGBA)
         
@@ -301,17 +301,18 @@ def post_processing(canvas, contrast=1.0, threshold=60):
     post_image = canvas.copy()
     # Convert to More red less green
     # We are in BGR
-    post_image = 0.10 * post_image[:, :, 2] + -0.5 * post_image[:, :, 1] + 0.9 * post_image[:, :, 0]
-    post_image = np.clip(post_image, 0, None)
+    post_image = cv2.blur(post_image, (20, 20))
+    post_image = 1 * post_image[:, :, 2] + - 0.75 * post_image[:, :, 1] + -0.25 * post_image[:, :, 0]
+    post_image = np.clip(post_image, 0, 255)
     post_image = post_image.astype(np.uint8)
-    post_image = cv2.blur(post_image, (5, 5))
+    post_image = cv2.blur(post_image, (15, 15))
     
     # Increase contrast
     post_image = cv2.convertScaleAbs(post_image, alpha=contrast, beta=0)
 
     # Remove pixels below a certain brightness threshold
-    _, post_image = cv2.threshold(post_image, threshold, 255, cv2.THRESH_TOZERO)
-    #_, post_image = cv2.threshold(post_image, 1, 255, cv2.THRESH_BINARY)
+    #_, post_image = cv2.threshold(post_image, threshold, 255, cv2.THRESH_TOZERO)
+    _, post_image = cv2.threshold(post_image, threshold, 255, cv2.THRESH_BINARY)
 
     print("Saving post processed image...")
     cv2.imwrite("Images/processed.png", post_image)
@@ -332,9 +333,9 @@ def post_processing(canvas, contrast=1.0, threshold=60):
             cx, cy = 0, 0
         area = cv2.contourArea(contour)
         print(f'Monolayer {i+1}: Center ({cx}, {cy}), Area: {area}')
-        contour_image = cv2.circle(contour_image, (cx, cy), 7, color=(255, 0, 255, 255), thickness=-1)
+        contour_image = cv2.circle(contour_image, (cx, cy), 5, color=(0, 0, 0, 255), thickness=-1)
     
-    cv2.drawContours(contour_image, contours, -1, (255, 0, 0, 255), 3)
+    cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), 4)
     
     # Display the final image with contours
     print("\nSaving image with monolayers...")
@@ -363,8 +364,16 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             y (int): The y-coordinate in nanometers.
         """
         time.sleep(0.5)
+
+
+        ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
+        r = random.randint(0, 4)
+        if r != 0:
+            frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
+
+        ###################################################################################################################################
 
     def scan_line(x, y, direction, x_end):
         """

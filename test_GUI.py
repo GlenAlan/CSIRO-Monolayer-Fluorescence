@@ -26,20 +26,25 @@ class ImageDisplay:
         # Add content to the first tab
         label1 = tk.Label(self.tab1, text="This is Tab 1", font=("Arial", 16))
         label1.pack(pady=20)
+
         # Create the second tab
-        tab2 = ttk.Frame(notebook)
-        notebook.add(tab2, text="Tab 2")
+        self.tab2 = ttk.Frame(notebook)
+        notebook.add(self.tab2, text="Tab 2")
+
+        # Create the third tab
+        self.tab3 = ttk.Frame(notebook)
+        notebook.add(self.tab3, text="Tab 3")
 
         # Add content to the second tab
-        label2 = tk.Label(tab2, text="This is Tab 2", font=("Arial", 16))
+        label2 = tk.Label(self.tab2, text="This is Tab 2", font=("Arial", 16))
         label2.pack(pady=20)
 
         self.root.columnconfigure(0, minsize=150)
         self.root.rowconfigure([0, 1], minsize=50)
 
-        self.btn_roll = tk.Button(tab2, text = "Roll!", command = self.randNum)
+        self.btn_roll = tk.Button(self.tab2, text = "Roll!", command = self.randNum)
         self.btn_roll.pack()
-        self.lbl_roll = tk.Label(tab2)
+        self.lbl_roll = tk.Label(self.tab2)
         self.lbl_roll.pack()
 
         # Trying to zoom in on cropped image - First creating a canvas
@@ -52,9 +57,15 @@ class ImageDisplay:
         self.zoom_factor = 3
         self.region = [0, 0, 200, 200]
 
+        # Dummy variables
+        self.dummy_var1 = tk.DoubleVar(value=0)
+        self.dummy_var2 = tk.DoubleVar(value=0)
+
         self.update_image()
 
         self.create_control_buttons()
+
+        self.create_sliders()
 
     '''
     Random number generator for die.
@@ -106,6 +117,31 @@ class ImageDisplay:
 
         btn_down = tk.Button(button_frame, text="Down", command = lambda: self.move(dy=1))
         btn_down.grid(row=2, column=1)
+
+    def create_sliders(self):
+        # Slider 1 for Dummy Variable 1
+        slider1_label = ttk.Label(self.tab3, text="Dummy Variable 1:")
+        slider1_label.grid(row=0, column=0, pady=10)
+
+        # Slider displays value from variable and does command whenever you slide it.
+        # Could use command to update z position to change focus and/or have position as the variable.
+        # Could also just not have variable displayed and have it as a label somewhere else.
+        slider1 = tk.Scale(self.tab3, from_=0, to=100, orient='vertical')
+        slider1.grid(row=0, column=1, padx=20, pady=10)
+
+        # Slider 2 for Dummy Variable 2
+        slider2_label = ttk.Label(self.tab3, text="Dummy Variable 2:")
+        slider2_label.grid(row=1, column=0, pady=10)
+
+        slider2 = tk.Scale(self.tab3, from_=0, to=100, orient='vertical',
+                           variable=self.dummy_var2, command=self.update_var2)
+        slider2.grid(row=1, column=1, padx=20, pady=10)
+
+    def update_var1(self, value):
+        print(f"Dummy Variable 1 updated to: {value}")
+
+    def update_var2(self, value):
+        print(f"Dummy Variable 2 updated to: {value}")
 
 # Start the Tkinter event loop
 if __name__ == "__main__":
