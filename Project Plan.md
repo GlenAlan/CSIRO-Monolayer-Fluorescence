@@ -52,25 +52,31 @@ Our idea for the implementation of this is
   
   
 ## Timeline 
-Week 1:
+Week 1 (02/08):
 - Obtain project outline
 - Plan basic goals
 - Set up good file management practices
 
-Week 2:
+Week 2 (09/08):
 - Base functions defined
 - Movement and Camera work
 - Simple GUI interface
 
-Week 3:
+Week 3 (16/08):
 - Basic implementation of algorithm
 - Display stitched image
-- GUI calibration tab
+- GUI tab for calibration
 - GUI movement buttons
 - GUI view position
 
-Week 4:
+Week 4 (23/08):
 - Postprocessing
 - Basic monolayer identification
 - GUI camera view
 - GUI basic use flow
+- GUI start/end controls
+- GUI calibration
+
+Week 5 (30/08):
+- GUI image live stitched view
+- GUI progress bar
