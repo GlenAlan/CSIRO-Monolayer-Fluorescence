@@ -279,7 +279,7 @@ class GUI:
         wheel_frame.grid(padx=20, pady=20)
 
         camera_wheel_label = ttk.Label(self.calib_frame_text, text="360 Degree Wheel (Dummy Variable 2):")
-        camera_wheel_label.pack(row=1, column=0, pady=10)
+        camera_wheel_label.grid(row=1, column=0, pady=10)
 
         # Create a canvas for the 360-degree wheel
         self.canvas = tk.Canvas(wheel_frame, width=200, height=200, bg="white")

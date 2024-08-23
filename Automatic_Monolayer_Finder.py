@@ -26,6 +26,7 @@ import operator
 
 # These bits indicate that the stage is no longer moving.
 confirmation_bits = (2147484928, 2147484930)
+monolayer_crop_padding = 10
 
 dist = 343000
 camera_dims = (2448, 2048)
@@ -315,6 +316,7 @@ class Monolayer:
 
 
 def post_processing(canvas, contrast=2, threshold=100):
+    print("Post processing...")
     monolayers = []
 
     post_image = canvas.copy()
@@ -340,12 +342,18 @@ def post_processing(canvas, contrast=2, threshold=100):
     # Draw contours on the canvas
     contour_image = canvas.copy()
 
-    print("Locating Monolayers... \n")
+    print("Locating Monolayers...")
     # Find contours
     contours, _ = cv2.findContours(post_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for i, contour in enumerate(contours):
         x, y, w, h = cv2.boundingRect(contour)
-        image_section = contour_image[y:y+h, x:x+w]
+
+        x_start = max(x - monolayer_crop_padding, 0)
+        y_start = max(y - monolayer_crop_padding, 0)
+        x_end = min(x + w + monolayer_crop_padding, canvas.shape[1])
+        y_end = min(y + h + monolayer_crop_padding, canvas.shape[0]) 
+        image_section = canvas[y_start:y_end, x_start:x_end]
+
         monolayers.append(Monolayer(contour, image_section))
 
         cx, cy = monolayers[-1].position
@@ -356,14 +364,14 @@ def post_processing(canvas, contrast=2, threshold=100):
     cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), 4)
     
     # Display the final image with contours
-    print("\nSaving image with monolayers...")
+    print("Saving image with monolayers...")
     cv2.imwrite("Images/contour.png", contour_image)
     print("Saved!")
 
     monolayers.sort(key=operator.attrgetter('area'))
     for i, layer in enumerate(monolayers):
         print(f"{i+1}: Area: {layer.area:.0f} um,  Centre: {layer.position}")
-        cv2.imwrite("Monolayers/{i+1}.png", layer.image)
+        cv2.imwrite(f"Monolayers/{i+1}.png", layer.image)
 
 
 def alg(mcm301obj, image_queue, frame_queue, start, end):
