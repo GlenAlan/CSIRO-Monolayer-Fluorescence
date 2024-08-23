@@ -73,6 +73,9 @@ I continued working on the GUI, adding buttons for movement and labels for viewi
 # 23/08/24
 
 
+### Lachlan
+On the GUI I created a canvas which displayed a live view of the image from the camera. I ran into image queueing and threading issues so I fixed this by changing where the threading was being called. I tested everything in a test GUI file before trying to implement it into the main GUI file. One thing I was able to successfully do in the test GUI was move around a stock photo with buttons. This was not working last week because of threading and garbaging issues. I implemented a slider which will be used for changing the zoom and a 360 degree interactive wheel which will be used for rotating the camera. I had to change everything to be inside a class so it is easier to call functions that will update the windows such as the wheel.
+
 ### Next Week  
 - [ ] CAMERA SETTINGS
 - [ ] Add pixel -> location function
