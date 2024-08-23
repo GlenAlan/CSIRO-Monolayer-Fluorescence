@@ -163,22 +163,21 @@ if __name__ == "__main__":
             notebook = ttk.Notebook(root)
             notebook.pack(expand=True, fill="both")
 
-            # Creating a tab for main. The code is organised by tabs
+            # Creating a tab for main then with frames below. The code is organised by tabs.
             tab_main = ttk.Frame(notebook)
             notebook.add(tab_main, text="Main Tab")
 
-            # Creating the frames for the main tab. Note: this does not include anything inside the frames yet.
-            frame_image = tk.Canvas(tab_main)
-            frame_text = tk.Frame(tab_main, width=500, height=300, padx=50)
-            frame_image.pack(side = 'left')
-            frame_text.pack()
+            main_frame_image = tk.Canvas(tab_main)
+            main_frame_text = tk.Frame(tab_main, width=500, height=300, padx=50)
+            main_frame_image.pack(side = 'left')
+            main_frame_text.pack()
 
             # Sources images from camera and places it on canvas
             image_acquisition_thread = ImageAcquisitionThread(camera)
-            camera_widget = LiveViewCanvas(parent=frame_image, image_queue=image_acquisition_thread.get_output_queue())
+            camera_widget_main = LiveViewCanvas(parent=main_frame_image, image_queue=image_acquisition_thread.get_output_queue())
             vel = 50 # not sure what this does         
         
-            # See if this can be skipped
+            # Camera parameters
             print("Setting camera parameters...")
             camera.frames_per_trigger_zero_for_unlimited = 0
             camera.arm(2)
@@ -191,9 +190,6 @@ if __name__ == "__main__":
             # Initialises object
             mcm301obj = stage_setup()
 
-            frame_pos = tk.Frame(frame_text, padx = 25)
-            frame_pos.grid(row=2, sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
-            
             # List of button names, positions, and other arrays used in the tk buttons and labels
             btn_pos_nav = [
                 (5000,5000),
@@ -212,30 +208,63 @@ if __name__ == "__main__":
                 "Focus Z"
             ]
 
-            # Create buttons and place them in the grid
-            # Buttons required - origin, set start, set end
+            # Create buttons and place them in the grid - origin, set start, set end required
             for i, btn_pos in enumerate(btn_pos_nav):
-                button = tk.Button(frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(mcm301obj, pos=btn_pos))
+                button = tk.Button(main_frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(mcm301obj, pos=btn_pos))
                 button.grid(row = btn_positions[i][0], column = btn_positions[i][1], padx=30, pady=30) # padding around the buttons, not the text in the buttons.
             
+            # Frame for positions
+            main_frame_text_pos = tk.Frame(main_frame_text, padx = 25)
+            main_frame_text_pos.grid(row=2, sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
+
             def update():
-                # Positions
-                # Positions required - Live view of X,Y, and Z (focus)
+                # Positions - Live view of X,Y, and Z (focus) required
                 for i, name in enumerate(pos_names):
-                    label = tk.Label(frame_pos, text = name, padx = 10, pady = 5)
+                    label = tk.Label(main_frame_text_pos, text = name, padx = 10, pady = 5)
+                    label.grid(row = i, column = 0)
+                    label = tk.Label(calib_frame_text_pos, text = name, padx = 10, pady = 5)
                     label.grid(row = i, column = 0)
                 for i in range(len(pos_names)):
-                    label = tk.Label(frame_pos, text = f'{get_pos(mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
+                    label = tk.Label(main_frame_text_pos, text = f'{get_pos(mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
+                    label.grid(row = i, column = 1)
+                    label = tk.Label(calib_frame_text_pos, text = f'{get_pos(mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
                     label.grid(row = i, column = 1)
                 for i in range(2):
-                    label = tk.Label(frame_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
+                    label = tk.Label(main_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
+                    label.grid(row = i, column = 2)
+                    label = tk.Label(calib_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
                     label.grid(row = i, column = 2)
                 root.after(100, update)
-            
 
             # Calibration tab
             tab_calibrate = ttk.Frame(notebook)
             notebook.add(tab_calibrate, text="Calibration")
+
+            calib_frame_image = tk.Canvas(tab_calibrate)
+            calib_frame_text = tk.Frame(tab_calibrate, width=500, height=300, padx=50)
+            calib_frame_image.pack(side = 'left')
+            calib_frame_text.pack()
+            
+            calib_frame_text_pos = tk.Frame(calib_frame_text, padx = 25)
+            calib_frame_text_pos.grid(row=2, sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
+            
+            # Live image view in calibration tab
+            image_acquisition_thread = ImageAcquisitionThread(camera)
+            camera_widget_calib = LiveViewCanvas(parent=calib_frame_image, image_queue=image_acquisition_thread.get_output_queue())
+
+            # Calibration adjustment sliders. Currently there is a focus (z pos) slider. To include camer rotation wheel.
+            slider_focus_label = ttk.Label(calib_frame_text, text="Dummy Variable 1:")
+            slider_focus_label.grid(row=0, column=0, pady=10)
+            # Sliders do not have variable or command assigned to it yet.
+            slider_focus = tk.Scale(calib_frame_text, from_=0, to=100, orient='vertical',)
+            slider_focus.grid(row=0, column=0, padx=20, pady=10)
+
+            # Slider 2 for Dummy Variable 2
+            camera_wheel_label = ttk.Label(calib_frame_text, text="Dummy Variable 2:")
+            camera_wheel_label.grid(row=0, column=0, pady=10)
+
+            camera_wheel = tk.Scale(calib_frame_text, from_=0, to=100, orient='vertical',)
+            camera_wheel.grid(row=0, column=0, padx=20, pady=10)
 
             # Results tab
             tab_results = ttk.Frame(notebook)
@@ -245,9 +274,8 @@ if __name__ == "__main__":
             tab_devices = ttk.Frame(notebook)
             notebook.add(tab_devices, text="Devices")
 
-            # Need to check when to call update()
+            # Runs infinite loop
             update()
-
             
             print("App starting")
             root.mainloop()
