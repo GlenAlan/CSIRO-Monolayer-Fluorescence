@@ -249,7 +249,7 @@ if __name__ == "__main__":
             calib_frame_text_pos.grid(row=2, sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
             
             # Live image view in calibration tab
-            image_acquisition_thread = ImageAcquisitionThread(camera)
+            # image_acquisition_thread = ImageAcquisitionThread(camera)
             camera_widget_calib = LiveViewCanvas(parent=calib_frame_image, image_queue=image_acquisition_thread.get_output_queue())
 
             # Calibration adjustment sliders. Currently there is a focus (z pos) slider. To include camer rotation wheel.
