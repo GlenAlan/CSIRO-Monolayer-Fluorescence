@@ -160,15 +160,15 @@ class GUI:
         tab_main = ttk.Frame(notebook)
         notebook.add(tab_main, text="Main Tab")
 
-        main_frame_image = tk.Canvas(tab_main)
-        main_frame_text = tk.Frame(tab_main, width=500, height=300, padx=50)
-        main_frame_image.pack(side = 'left')
-        main_frame_text.pack()
+        self.main_frame_image = tk.Canvas(tab_main)
+        self.main_frame_text = tk.Frame(tab_main, width=500, height=300, padx=50)
+        self.main_frame_image.pack(side = 'left')
+        self.main_frame_text.pack()
 
         self.camera = camera
         # Sources images from camera and places it on canvas
         image_acquisition_thread = ImageAcquisitionThread(self.camera)
-        self.camera_widget_main = LiveViewCanvas(parent=main_frame_image, image_queue=image_acquisition_thread.get_output_queue())
+        self.camera_widget_main = LiveViewCanvas(parent=self.main_frame_image, image_queue=image_acquisition_thread.get_output_queue())
         self.vel = 50 # not sure what this does         
     
         # Camera parameters
@@ -184,40 +184,13 @@ class GUI:
         # Initialises object
         self.mcm301obj = stage_setup()
 
-        # List of button names, positions, and other arrays used in the tk buttons and labels
-        btn_pos_nav = [
-            (5000000,5000000),
-            (1000500,1000500)
-        ]
-        btn_names = [
-            f"Move to {btn_pos_nav[0]}",
-            f"Move to {btn_pos_nav[1]}",
-            "Zoom in \'some amount\'",
-            "Zoom out \'some amount\'",
-        ]
-        btn_positions = [[0, 0], [0, 1], [1, 0], [1, 1]]
-        self.pos_names = [
-            "Pos X",
-            "Pos Y",
-            "Focus Z"
-        ]
-
-        # Create buttons in main tab and place them in the grid - origin, set start, set end required
-        for i, btn_pos in enumerate(btn_pos_nav):
-            button = tk.Button(main_frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(self.mcm301obj, pos=btn_pos))
-            button.grid(row = btn_positions[i][0], column = btn_positions[i][1], padx=30, pady=30) # padding around the buttons, not the text in the buttons.
-        
-        # Frame for positions in main
-        self.main_frame_text_pos = tk.Frame(main_frame_text, padx = 25)
-        self.main_frame_text_pos.grid(row=2, sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
-        
         # Calibration tab
         tab_calibrate = ttk.Frame(notebook)
         notebook.add(tab_calibrate, text="Calibration")
 
         self.calib_frame_image = tk.Canvas(tab_calibrate)
-        self.calib_frame_text = tk.Frame(tab_calibrate, width=500, height=300, padx=50)
         self.calib_frame_image.pack(side = 'left')
+        self.calib_frame_text = tk.Frame(tab_calibrate, width=500, height=300, padx=50)
         self.calib_frame_text.pack()
         
         self.calib_frame_text_pos = tk.Frame(self.calib_frame_text, padx = 25)
@@ -226,17 +199,6 @@ class GUI:
         # Live image view in calibration tab
         self.camera_widget_calib = LiveViewCanvas(parent=self.calib_frame_image, image_queue=image_acquisition_thread.get_output_queue())
 
-        # Calibration adjustment sliders. Currently there is a focus (z pos) slider. To include camer rotation wheel.
-        # Sliders do not have variable or command assigned to it yet.
-        # First slider needs z position function. Second slider needs camera rotation function.
-
-        # Slider 1
-        slider_focus_label = ttk.Label(self.calib_frame_text, text="Dummy Variable 1:")
-        slider_focus_label.grid(row=0, column=0, pady=10)
-
-        slider_focus = tk.Scale(self.calib_frame_text, from_=0, to=100, orient='vertical',)
-        slider_focus.grid(row=0, column=1, padx=20, pady=10)
-
         # Results tab
         tab_results = ttk.Frame(notebook)
         notebook.add(tab_results, text="Results & Analysis")
@@ -244,7 +206,13 @@ class GUI:
         # Device tab
         tab_devices = ttk.Frame(notebook)
         notebook.add(tab_devices, text="Devices")
+        
+        self.create_control_buttons()
 
+        self.create_sliders()
+
+        self.create_360_wheel()
+        
         self.update()
 
     def update(self):
@@ -265,6 +233,46 @@ class GUI:
             label = tk.Label(self.calib_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
             label.grid(row = i, column = 2)
         root.after(100, self.update)
+
+    def create_control_buttons(self):
+        # List of button names, positions, and other arrays used in the tk buttons and labels
+        btn_pos_nav = [
+            (5000000,5000000),
+            (1000500,1000500)
+        ]
+        btn_names = [
+            f"Move to {btn_pos_nav[0]}",
+            f"Move to {btn_pos_nav[1]}",
+            "Zoom in \'some amount\'",
+            "Zoom out \'some amount\'",
+        ]
+        btn_positions = [[0, 0], [0, 1], [1, 0], [1, 1]]
+        self.pos_names = [
+            "Pos X",
+            "Pos Y",
+            "Focus Z"
+        ]
+
+        # Create buttons in main tab and place them in the grid - origin, set start, set end required
+        for i, btn_pos in enumerate(btn_pos_nav):
+            button = tk.Button(self.main_frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(self.mcm301obj, pos=btn_pos))
+            button.grid(row = btn_positions[i][0], column = btn_positions[i][1], padx=30, pady=30) # padding around the buttons, not the text in the buttons.
+        
+        # Frame for positions in main
+        self.main_frame_text_pos = tk.Frame(self.main_frame_text, padx = 25)
+        self.main_frame_text_pos.grid(row=2, sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
+    
+    def create_sliders(self):
+        # Calibration adjustment sliders. Currently there is a focus (z pos) slider. To include camer rotation wheel.
+        # Sliders do not have variable or command assigned to it yet.
+        # First slider needs z position function. Second slider needs camera rotation function.
+
+        # Slider 1
+        slider_focus_label = ttk.Label(self.calib_frame_text, text="Dummy Variable 1:")
+        slider_focus_label.grid(row=0, column=0, pady=10)
+
+        slider_focus = tk.Scale(self.calib_frame_text, from_=0, to=100, orient='vertical',)
+        slider_focus.grid(row=0, column=1, padx=20, pady=10)
     
     def create_360_wheel(self):
         wheel_frame = ttk.Frame(self.calib_frame_text)
@@ -327,7 +335,6 @@ class GUI:
         end_x = self.center_x + self.radius * math.cos(math.radians(angle))
         end_y = self.center_y + self.radius * math.sin(math.radians(angle))
         self.canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
-
 
         # Update the dummy variable 2
         self.dummy_var2.set(angle)
