@@ -309,21 +309,14 @@ if __name__ == "__main__":
             vel = 50 # not sure what this does         
         
             # See if this can be skipped
-            # print("Setting camera parameters...")
-            # camera.frames_per_trigger_zero_for_unlimited = 0
-            # camera.arm(2)
-            # camera.issue_software_trigger()
+            print("Setting camera parameters...")
+            camera.frames_per_trigger_zero_for_unlimited = 0
+            camera.arm(2)
+            camera.issue_software_trigger()
 
             # Not sure when image acquisition thread needs to start in the code.
             print("Starting image acquisition thread...")
             image_acquisition_thread.start()
-
-            print("App starting")
-            root.mainloop()
-
-            print("Waiting for image acquisition thread to finish...")
-            image_acquisition_thread.stop()
-            image_acquisition_thread.join()
 
             # Initialises object
             mcm301obj = stage_setup()
@@ -384,6 +377,14 @@ if __name__ == "__main__":
 
             # Need to check when to call update()
             update()
+
+            
+            print("App starting")
+            root.mainloop()
+
+            print("Waiting for image acquisition thread to finish...")
+            image_acquisition_thread.stop()
+            image_acquisition_thread.join()
 
             print("Closing resources...")
 
