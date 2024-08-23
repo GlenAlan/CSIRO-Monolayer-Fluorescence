@@ -147,7 +147,7 @@ def get_pos(mcm301obj, stages=[4, 5, 6]):
     return pos
 
 class GUI:
-    def __init__(self, root):
+    def __init__(self, root, camera):
         self.root = root
         self.root.title('Camera with controls - development')
         
@@ -164,8 +164,9 @@ class GUI:
         main_frame_image.pack(side = 'left')
         main_frame_text.pack()
 
+        self.camera = camera
         # Sources images from camera and places it on canvas
-        image_acquisition_thread = ImageAcquisitionThread(camera)
+        image_acquisition_thread = ImageAcquisitionThread(self.camera)
         self.camera_widget_main = LiveViewCanvas(parent=main_frame_image, image_queue=image_acquisition_thread.get_output_queue())
         self.vel = 50 # not sure what this does         
     
@@ -202,12 +203,12 @@ class GUI:
 
         # Create buttons in main tab and place them in the grid - origin, set start, set end required
         for i, btn_pos in enumerate(btn_pos_nav):
-            button = tk.Button(main_frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(mcm301obj, pos=btn_pos))
+            button = tk.Button(main_frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(self.mcm301obj, pos=btn_pos))
             button.grid(row = btn_positions[i][0], column = btn_positions[i][1], padx=30, pady=30) # padding around the buttons, not the text in the buttons.
         
         # Frame for positions in main
-        main_frame_text_pos = tk.Frame(main_frame_text, padx = 25)
-        main_frame_text_pos.grid(row=2, sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
+        self.main_frame_text_pos = tk.Frame(main_frame_text, padx = 25)
+        self.main_frame_text_pos.grid(row=2, sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
         
         # Calibration tab
         tab_calibrate = ttk.Frame(notebook)
@@ -218,8 +219,8 @@ class GUI:
         calib_frame_image.pack(side = 'left')
         calib_frame_text.pack()
         
-        calib_frame_text_pos = tk.Frame(calib_frame_text, padx = 25)
-        calib_frame_text_pos.grid(row=2 , sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
+        self.calib_frame_text_pos = tk.Frame(calib_frame_text, padx = 25)
+        self.calib_frame_text_pos.grid(row=2 , sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
         
         # Live image view in calibration tab
         self.camera_widget_calib = LiveViewCanvas(parent=calib_frame_image, image_queue=image_acquisition_thread.get_output_queue())
@@ -249,22 +250,22 @@ class GUI:
 
         self.update()
 
-    def update():
+    def update(self):
         # Positions - Live view of X,Y, and Z (focus) required
         for i, name in enumerate(self.pos_names):
-            label = tk.Label(main_frame_text_pos, text = name, padx = 10, pady = 5)
+            label = tk.Label(self.main_frame_text_pos, text = name, padx = 10, pady = 5)
             label.grid(row = i, column = 0)
-            label = tk.Label(calib_frame_text_pos, text = name, padx = 10, pady = 5)
+            label = tk.Label(self.calib_frame_text_pos, text = name, padx = 10, pady = 5)
             label.grid(row = i, column = 0)
-        for i in range(len(pos_names)):
-            label = tk.Label(main_frame_text_pos, text = f'{get_pos(self.mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
+        for i in range(len(self.pos_names)):
+            label = tk.Label(self.main_frame_text_pos, text = f'{get_pos(self.mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
             label.grid(row = i, column = 1)
-            label = tk.Label(calib_frame_text_pos, text = f'{get_pos(self.mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
+            label = tk.Label(self.calib_frame_text_pos, text = f'{get_pos(self.mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
             label.grid(row = i, column = 1)
         for i in range(2):
-            label = tk.Label(main_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
+            label = tk.Label(self.main_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
             label.grid(row = i, column = 2)
-            label = tk.Label(calib_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
+            label = tk.Label(self.calib_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
             label.grid(row = i, column = 2)
         root.after(100, self.update)
 
@@ -279,7 +280,7 @@ if __name__ == "__main__":
             # create generic Tk App with just a LiveViewCanvas widget
             print("App initialising...")
             root = tk.Tk()
-            GUI_main = GUI(root)
+            GUI_main = GUI(root, camera)
             
             print("App starting")
             root.mainloop()
