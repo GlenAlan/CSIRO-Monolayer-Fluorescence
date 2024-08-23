@@ -22,6 +22,7 @@ import threading
 import queue
 import cv2
 import numpy as np
+import operator
 
 # These bits indicate that the stage is no longer moving.
 confirmation_bits = (2147484928, 2147484930)
@@ -296,11 +297,29 @@ def stitch_and_display_images(frame_queue, start, end):
 
     post_processing(canvas)
 
+class Monolayer:
+    def __init__(self, contour, image):
+        self.image = image
 
-def post_processing(canvas, contrast=1.0, threshold=60):
+        M = cv2.moments(contour)
+        if M['m00'] != 0:
+            self.cx = int(M['m10']/M['m00'])
+            self.cy = int(M['m01']/M['m00'])
+        else:
+            self.cx, self.cy = 0, 0
+        self.area_px = cv2.contourArea(contour)
+        self.position = (self.cx, self.cy)
+        self.area = self.area_px * (nm_per_px**2)
+        self.area_um = self.area / 1e6
+        
+
+
+def post_processing(canvas, contrast=2, threshold=100):
+    monolayers = []
+
     post_image = canvas.copy()
     # Convert to More red less green
-    # We are in BGR
+    # We are in BGR but laying out in RGB
     post_image = cv2.blur(post_image, (20, 20))
     post_image = 1 * post_image[:, :, 2] + - 0.75 * post_image[:, :, 1] + -0.25 * post_image[:, :, 0]
     post_image = np.clip(post_image, 0, 255)
@@ -325,14 +344,13 @@ def post_processing(canvas, contrast=1.0, threshold=60):
     # Find contours
     contours, _ = cv2.findContours(post_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for i, contour in enumerate(contours):
-        M = cv2.moments(contour)
-        if M['m00'] != 0:
-            cx = int(M['m10']/M['m00'])
-            cy = int(M['m01']/M['m00'])
-        else:
-            cx, cy = 0, 0
-        area = cv2.contourArea(contour)
-        print(f'Monolayer {i+1}: Center ({cx}, {cy}), Area: {area}')
+        x, y, w, h = cv2.boundingRect(contour)
+        image_section = contour_image[y:y+h, x:x+w]
+        monolayers.append(Monolayer(contour, image_section))
+
+        cx, cy = monolayers[-1].position
+        
+        #print(f'Monolayer {i+1}: Center ({cx}, {cy}), Area: {area}')
         contour_image = cv2.circle(contour_image, (cx, cy), 5, color=(0, 0, 0, 255), thickness=-1)
     
     cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), 4)
@@ -341,6 +359,11 @@ def post_processing(canvas, contrast=1.0, threshold=60):
     print("\nSaving image with monolayers...")
     cv2.imwrite("Images/contour.png", contour_image)
     print("Saved!")
+
+    monolayers.sort(key=operator.attrgetter('area'))
+    for i, layer in enumerate(monolayers):
+        print(f"{i+1}: Area: {layer.area:.0f} um,  Centre: {layer.position}")
+        cv2.imwrite("Monolayers/{i+1}.png", layer.image)
 
 
 def alg(mcm301obj, image_queue, frame_queue, start, end):
