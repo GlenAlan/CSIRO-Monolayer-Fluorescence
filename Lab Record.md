@@ -74,6 +74,7 @@ I continued working on the GUI, adding buttons for movement and labels for viewi
 
 
 ### Next Week  
+- [ ] CAMERA SETTINGS
 - [ ] Add pixel -> location function
 - [ ] Add move specific distance function
 - [ ] Add Autofocus
