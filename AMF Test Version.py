@@ -97,33 +97,37 @@ def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     canvas_region = canvas[y_start:y_end, x_start:x_end]
     image_region = cropped_image[y_offset:y_offset + region_height, x_offset:x_offset + region_width]
 
-    # Ensure that the image region has an alpha channel
-    if image_region.shape[2] == 3:
-        image_region = cv2.cvtColor(image_region, cv2.COLOR_RGB2RGBA)
+    # Separate the alpha channels and normalize them
+    image_alpha = (image_region[:, :, 3] / 255.0 * alpha).astype(np.float32)
+    canvas_alpha = (canvas_region[:, :, 3] / 255.0).astype(np.float32)
 
-    # Perform alpha blending in the overlapping regions
-    image_alpha = image_region[:, :, 3] / 255.0  # Normalize alpha channel to [0, 1]
-    canvas_alpha = canvas_region[:, :, 3] / 255.0
+    # Blending logic
+    new_alpha = image_alpha + canvas_alpha * (1 - image_alpha)
+    
+    # Determine where the canvas is initially transparent
+    canvas_transparent_mask = canvas_alpha == 0
 
-    # Calculate the combined alpha where both images overlap
-    combined_alpha = image_alpha * alpha + canvas_alpha * (1 - image_alpha * alpha)
-    combined_alpha[combined_alpha == 0] = 1
+    # Determine where there is overlap (both are non-transparent)
+    overlap_mask = (canvas_alpha > 0) & (image_alpha > 0)
 
-    # Blend only the RGB channels where the overlap occurs
-    for c in range(3):  # Loop over RGB channels
-        canvas_region[:, :, c] = np.where(
-            canvas_alpha > 0,  # Only blend in the overlapping regions
-            (image_region[:, :, c] * image_alpha * alpha + canvas_region[:, :, c] * canvas_alpha * (1 - image_alpha * alpha)) / combined_alpha,
-            image_region[:, :, c]  # Directly overlay the image where no overlap occurs
-        )
+    # Handle fully transparent areas on the canvas: Place image directly
+    canvas_region[canvas_transparent_mask, :3] = image_region[canvas_transparent_mask, :3]
+    canvas_region[canvas_transparent_mask, 3] = image_region[canvas_transparent_mask, 3] * alpha * 255
 
-    # Update the alpha channel in the canvas, ensuring full opacity where the image is placed
-    canvas_region[:, :, 3] = np.where(canvas_alpha > 0, combined_alpha * 255, 255)
+    # Handle overlap areas: Blend the image and canvas
+    canvas_region[overlap_mask, :3] = (
+        image_region[overlap_mask, :3] * image_alpha[overlap_mask, np.newaxis] +
+        canvas_region[overlap_mask, :3] * canvas_alpha[overlap_mask, np.newaxis] * (1 - image_alpha[overlap_mask, np.newaxis])
+    ) / new_alpha[overlap_mask, np.newaxis]
 
-    # Place the blended region back into the canvas
+    # Update alpha channel in the canvas: Full opacity after blending
+    canvas_region[overlap_mask, 3] = 255
+
+    # Place the updated region back into the canvas
     canvas[y_start:y_end, x_start:x_end] = canvas_region
 
     return canvas
+
 
 def process_image(item, canvas, start, lock):
     """
@@ -239,7 +243,12 @@ class Monolayer:
 
         self.contour = contour - np.array([[x_start, y_start]])
 
-        self.quality = 1000 * 1/(self.compute_smoothed_entropy()+1e-12) * 1/(self.compute_tv_norm()+1e-12)
+        # Compute quality metrics
+        self.smoothed_entropy = self.compute_smoothed_entropy()
+        self.total_variation_norm = self.compute_tv_norm()
+        self.local_intensity_variance = self.compute_local_intensity_variance()
+        self.contrast_to_noise_ratio = self.compute_cnr()
+        self.skewness = self.compute_skewness()
 
     def compute_smoothed_entropy(self):
         # Convert image to grayscale if it's not already
@@ -262,7 +271,7 @@ class Monolayer:
         entropy = shannon_entropy(roi)
 
         return entropy
-    
+
     def compute_tv_norm(self):
         # Convert image to grayscale if it's not already
         if len(self.image.shape) == 3:
@@ -291,6 +300,79 @@ class Monolayer:
         tv_norm_normalized = tv_norm / self.area_px if self.area_px != 0 else 0
 
         return tv_norm_normalized
+
+    def compute_local_intensity_variance(self):
+        # Convert image to grayscale if it's not already
+        if len(self.image.shape) == 3:
+            gray_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = self.image  # Assuming the image is already grayscale
+
+        # Create a mask for the contour
+        mask = np.zeros(self.image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [self.contour], -1, 255, thickness=cv2.FILLED)
+
+        # Calculate local variance using a sliding window
+        kernel_size = 5
+        local_variances = []
+
+        for y in range(0, gray_image.shape[0] - kernel_size, kernel_size):
+            for x in range(0, gray_image.shape[1] - kernel_size, kernel_size):
+                if mask[y:y+kernel_size, x:x+kernel_size].any():
+                    local_patch = gray_image[y:y+kernel_size, x:x+kernel_size]
+                    local_variance = np.var(local_patch)
+                    local_variances.append(local_variance)
+
+        if local_variances:
+            return np.mean(local_variances)  # Mean variance as quality metric
+        else:
+            return 0  # If no variances are found, return zero
+
+    def compute_cnr(self):
+        # Convert image to grayscale if it's not already
+        if len(self.image.shape) == 3:
+            gray_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = self.image  # Assuming the image is already grayscale
+
+        # Create a mask for the contour
+        mask = np.zeros(self.image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [self.contour], -1, 255, thickness=cv2.FILLED)
+
+        # Calculate mean and standard deviation within the masked region
+        mean_val, stddev_val = cv2.meanStdDev(gray_image, mask=mask)
+
+        # Calculate mean intensity outside the contour
+        mask_inv = cv2.bitwise_not(mask)
+        mean_bg, _ = cv2.meanStdDev(gray_image, mask=mask_inv)
+
+        # Calculate CNR
+        cnr = abs(mean_val - mean_bg) / (stddev_val + 1e-10)  # Adding epsilon to avoid division by zero
+
+        return cnr[0][0]
+    
+    def compute_skewness(self):
+        # Convert image to grayscale if it's not already
+        if len(self.image.shape) == 3:
+            gray_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = self.image  # Assuming the image is already grayscale
+
+        # Create a mask for the contour
+        mask = np.zeros(self.image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [self.contour], -1, 255, thickness=cv2.FILLED)
+
+        # Masked region of interest
+        masked_pixels = gray_image[mask == 255]
+
+        # Calculate median and mean of the intensities
+        median_intensity = np.median(masked_pixels)
+        mean_intensity = np.mean(masked_pixels)
+
+        # Calculate the difference between median and mean intensity
+        median_minus_mean = median_intensity - mean_intensity
+
+        return median_minus_mean
         
         
 
@@ -350,7 +432,7 @@ def post_processing(canvas, contrast=2, threshold=100):
 
     monolayers.sort(key=operator.attrgetter('area'))
     for i, layer in enumerate(monolayers):
-        print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}, Quality: {layer.quality:.2f}")
+        print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}, Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
         cv2.imwrite(f"Monolayers/{i+1}.png", layer.image)
 
 
