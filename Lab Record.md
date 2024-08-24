@@ -75,7 +75,7 @@ I continued working on the GUI, adding buttons for movement and labels for viewi
 
 ### Glen
 This week I managed implement the post processing of the stitched image to enable us to identify monolayers. I added a monolayer class as to have a neat way of storing the data.
-etc... save image snippits, fancy greyscale, issues etc.
+etc... save image snippets, fancy greyscale, issues etc.
 
 
 ### Lachlan
@@ -88,3 +88,4 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 - [ ] Add Autofocus
 - [ ] Speed up
 - [ ] Table of statistics
+- [ ] Add a thread which is given the canvas and scales it down during image processing and displays it

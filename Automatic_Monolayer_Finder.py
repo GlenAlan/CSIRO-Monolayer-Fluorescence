@@ -28,9 +28,10 @@ import operator
 confirmation_bits = (2147484928, 2147484930)
 monolayer_crop_padding = 10
 
-dist = 343000
 camera_dims = (2448, 2048)
 nm_per_px = 171.6
+image_overlap = 0.05
+dist = int(min(camera_dims) * nm_per_px * (1-image_overlap))
 
 # TODO
 # FIX Nasty alg layout

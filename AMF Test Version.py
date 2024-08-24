@@ -21,6 +21,7 @@ import numpy as np
 import operator
 from concurrent.futures import ThreadPoolExecutor
 from skimage.measure import shannon_entropy
+import torch
 
 # These bits indicate that the stage is no longer moving.
 confirmation_bits = (2147484928, 2147484930)
@@ -50,14 +51,14 @@ def get_pos(mcm301obj, stages=[4, 5, 6]):
 
 
 def get_scan_area(mcm301obj):
-    start = 2e6, 2e6
-    end = 4e6, 4e6
+    start = 1e6, 1e6
+    end = 11e6, 11e6
     return start, end
 
 
 def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     """
-    Adds an image with an alpha channel to the canvas at the specified center coordinates.
+    Adds an image with an alpha channel to the canvas at the specified center coordinates using PyTorch for GPU acceleration.
     The image is placed with full opacity except in overlapping regions, where it is blended with transparency.
 
     Args:
@@ -93,38 +94,39 @@ def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     region_width = x_end - x_start
     region_height = y_end - y_start
 
-    # Extract the relevant regions from the canvas and the cropped image
-    canvas_region = canvas[y_start:y_end, x_start:x_end]
-    image_region = cropped_image[y_offset:y_offset + region_height, x_offset:x_offset + region_width]
+    # Convert the relevant regions to PyTorch tensors for GPU processing
+    canvas_region = torch.tensor(canvas[y_start:y_end, x_start:x_end], dtype=torch.float32, device='cuda')
+    image_region = torch.tensor(cropped_image[y_offset:y_offset + region_height, x_offset:x_offset + region_width], dtype=torch.float32, device='cuda')
 
     # Separate the alpha channels and normalize them
-    image_alpha = (image_region[:, :, 3] / 255.0 * alpha).astype(np.float32)
-    canvas_alpha = (canvas_region[:, :, 3] / 255.0).astype(np.float32)
+    image_alpha = (image_region[:, :, 3] / 255.0) * alpha
+    canvas_alpha = canvas_region[:, :, 3] / 255.0
 
-    # Blending logic
+    # Compute the new alpha channel after blending
     new_alpha = image_alpha + canvas_alpha * (1 - image_alpha)
-    
+    new_alpha_safe = torch.clamp(new_alpha, min=1e-6)
+
     # Determine where the canvas is initially transparent
-    canvas_transparent_mask = canvas_alpha == 0
+    canvas_transparent_mask = (canvas_alpha == 0)
 
-    # Determine where there is overlap (both are non-transparent)
-    overlap_mask = (canvas_alpha > 0) & (image_alpha > 0)
+    # Directly place the image where the canvas is transparent
+    canvas_region[canvas_transparent_mask] = image_region[canvas_transparent_mask]
 
-    # Handle fully transparent areas on the canvas: Place image directly
-    canvas_region[canvas_transparent_mask, :3] = image_region[canvas_transparent_mask, :3]
-    canvas_region[canvas_transparent_mask, 3] = image_region[canvas_transparent_mask, 3] * alpha * 255
+    # Blend the regions where there is overlap (both canvas and image have alpha)
+    blend_mask = (canvas_alpha > 0) & (image_alpha > 0)
 
-    # Handle overlap areas: Blend the image and canvas
-    canvas_region[overlap_mask, :3] = (
-        image_region[overlap_mask, :3] * image_alpha[overlap_mask, np.newaxis] +
-        canvas_region[overlap_mask, :3] * canvas_alpha[overlap_mask, np.newaxis] * (1 - image_alpha[overlap_mask, np.newaxis])
-    ) / new_alpha[overlap_mask, np.newaxis]
+    # Blend RGB channels where there is overlap
+    for c in range(3):
+        canvas_region[:, :, c][blend_mask] = (
+            image_region[:, :, c][blend_mask] * image_alpha[blend_mask] +
+            canvas_region[:, :, c][blend_mask] * canvas_alpha[blend_mask] * (1 - image_alpha[blend_mask])
+        ) / new_alpha_safe[blend_mask]
 
-    # Update alpha channel in the canvas: Full opacity after blending
-    canvas_region[overlap_mask, 3] = 255
+    # Update alpha to full opacity after blending (255) for areas that have been blended
+    canvas_region[:, :, 3][blend_mask] = new_alpha[blend_mask] * 255
 
-    # Place the updated region back into the canvas
-    canvas[y_start:y_end, x_start:x_end] = canvas_region
+    # Convert the blended result back to a NumPy array
+    canvas[y_start:y_end, x_start:x_end] = canvas_region.cpu().numpy().astype(canvas.dtype)
 
     return canvas
 
