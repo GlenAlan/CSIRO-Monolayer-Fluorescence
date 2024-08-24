@@ -88,5 +88,3 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 - [ ] Add Autofocus
 - [ ] Speed up
 - [ ] Table of statistics
-- [ ] Add a thread which is given the canvas and scales it down during image processing and displays it
-- [ ] Threaded final image save

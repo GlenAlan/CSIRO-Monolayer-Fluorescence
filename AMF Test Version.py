@@ -51,8 +51,8 @@ def get_pos(mcm301obj, stages=[4, 5, 6]):
 
 
 def get_scan_area(mcm301obj):
-    start = 2e6, 2e6
-    end = 4e6, 4e6
+    start = 1e6, 1e6
+    end = 11e6, 11e6
     return start, end
 
 
