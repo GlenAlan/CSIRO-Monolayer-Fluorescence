@@ -51,8 +51,8 @@ def get_pos(mcm301obj, stages=[4, 5, 6]):
 
 
 def get_scan_area(mcm301obj):
-    start = 1e6, 1e6
-    end = 11e6, 11e6
+    start = 2e6, 2e6
+    end = 4e6, 4e6
     return start, end
 
 
@@ -179,12 +179,13 @@ def stitch_and_display_images(frame_queue, start, end):
     """
     global nm_per_px, camera_dims  # Use the global variables
     
+    frame_dims = min(camera_dims)  # Assuming square frames
+    
     # Calculate the size of the output canvas based on the scan area and the camera dimensions
     output_size = [
-        int((end[0] - start[0]) / nm_per_px + camera_dims[0] * 2.5),  # Width of the canvas
-        int((end[1] - start[1]) / nm_per_px + camera_dims[1] * 2.5)   # Height of the canvas
+        int((end[0] - start[0]) / nm_per_px + frame_dims * 2.5),  # Width of the canvas
+        int((end[1] - start[1]) / nm_per_px + frame_dims * 2.5)   # Height of the canvas
     ]
-    
     # Initialize the canvas
     canvas = np.zeros((output_size[1], output_size[0], 4), dtype=np.uint8)  # 4 channels (RGBA)
 
