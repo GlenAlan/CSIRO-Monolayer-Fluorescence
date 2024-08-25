@@ -22,6 +22,7 @@ import operator
 from concurrent.futures import ThreadPoolExecutor
 from skimage.measure import shannon_entropy
 import torch
+import os
 
 # These bits indicate that the stage is no longer moving.
 confirmation_bits = (2147484928, 2147484930)
@@ -32,8 +33,8 @@ nm_per_px = 171.6
 image_overlap = 0.05
 dist = int(min(camera_dims) * nm_per_px * (1-image_overlap))
 
-# TODO
-# FIX Nasty alg layout
+accel_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 def stage_setup():
     mcm301obj = MCM301()
@@ -51,9 +52,31 @@ def get_pos(mcm301obj, stages=[4, 5, 6]):
 
 
 def get_scan_area(mcm301obj):
-    start = 1e6, 1e6
-    end = 11e6, 11e6
+    start = 0e6, 0e6
+    end = 10e6, 10e6
     return start, end
+
+
+def format_size(size_in_bytes):
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size_in_bytes < 1024:
+                return f"{size_in_bytes:.2f} {unit}"
+            size_in_bytes /= 1024
+
+def scale_down_canvas(canvas, scale_factor):
+    if scale_factor == 1:
+        return canvas
+    else:
+        downsampled_canvas = cv2.resize(
+            canvas,
+            (canvas.shape[1] // scale_factor, canvas.shape[0] // scale_factor),
+            interpolation=cv2.INTER_AREA
+        )
+        return downsampled_canvas
+
+def save_image(image, filename, scale_down_factor=1):
+    cv2.imwrite(filename, scale_down_canvas(image, scale_down_factor))
+    print(format_size(os.path.getsize(filename)))
 
 
 def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
@@ -95,8 +118,8 @@ def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     region_height = y_end - y_start
 
     # Convert the relevant regions to PyTorch tensors for GPU processing
-    canvas_region = torch.tensor(canvas[y_start:y_end, x_start:x_end], dtype=torch.float32, device='cuda')
-    image_region = torch.tensor(cropped_image[y_offset:y_offset + region_height, x_offset:x_offset + region_width], dtype=torch.float32, device='cuda')
+    canvas_region = torch.tensor(canvas[y_start:y_end, x_start:x_end], dtype=torch.float32, device=accel_device)
+    image_region = torch.tensor(cropped_image[y_offset:y_offset + region_height, x_offset:x_offset + region_width], dtype=torch.float32, device=accel_device)
 
     # Separate the alpha channels and normalize them
     image_alpha = (image_region[:, :, 3] / 255.0) * alpha
@@ -144,7 +167,6 @@ def process_image(item, canvas, start, lock):
     Returns:
         None: Updates the shared canvas in-place.
     """
-    global nm_per_px, camera_dims  # Use the global variables
 
     image, center_coords_raw = item
 
@@ -166,6 +188,7 @@ def process_image(item, canvas, start, lock):
     # Add the image to the canvas within a lock to ensure thread-safe operation
     with lock:
         add_image_to_canvas(canvas, image_np, center_coords)
+        
 
 def stitch_and_display_images(frame_queue, start, end):
     """
@@ -177,9 +200,9 @@ def stitch_and_display_images(frame_queue, start, end):
         start (tuple): The (x, y) starting coordinates of the scan area in nanometers.
         end (tuple): The (x, y) ending coordinates of the scan area in nanometers.
     """
-    global nm_per_px, camera_dims  # Use the global variables
-    
-    frame_dims = min(camera_dims)  # Assuming square frames
+
+    # Assuming square frames
+    frame_dims = min(camera_dims)  
     
     # Calculate the size of the output canvas based on the scan area and the camera dimensions
     output_size = [
@@ -221,7 +244,11 @@ def stitch_and_display_images(frame_queue, start, end):
     print(f"Time taken: {t2 - t1:.2f} seconds")
 
     print("Saving final image...")
-    cv2.imwrite("Images/final.png", canvas)
+    #cv2.imwrite("Images/final.png", canvas)
+    #cv2.imwrite("Images/final_compressed.png", canvas, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+
+    save_image(canvas, "Images/final_downsampled.png", 10)
+
     print("Save complete")
 
     post_processing(canvas)
@@ -238,7 +265,10 @@ class Monolayer:
             self.cx = int(M['m10']/M['m00'])
             self.cy = int(M['m01']/M['m00'])
         else:
-            self.cx, self.cy = 0, 0
+            # Edge case: Area is zero; calculate centroid from the bounding box
+            x, y, w, h = cv2.boundingRect(contour)
+            self.cx = x + w // 2 
+            self.cy = y + h // 2 
         self.area_px = cv2.contourArea(contour)
         self.position = (self.cx, self.cy)
         self.area = self.area_px * (nm_per_px**2)
@@ -381,58 +411,80 @@ class Monolayer:
 
 
 def post_processing(canvas, contrast=2, threshold=100):
+    t1 = time.time()
     print("Post processing...")
+
+    downscale_factor = 4
     monolayers = []
 
-    post_image = canvas.copy()
-    # Convert to More red less green
-    # We are in BGR but laying out in RGB
-    post_image = cv2.blur(post_image, (20, 20))
-    post_image = 1 * post_image[:, :, 2] + - 0.75 * post_image[:, :, 1] + -0.25 * post_image[:, :, 0]
+    # Create a downsampled version of the canvas for post-processing
+    post_image = scale_down_canvas(canvas, downscale_factor)
+
+    # post_image = cv2.blur(post_image, (5, 5)) # Optional pre grayscale blur (downscaling already blurs)
+    # Our image is in BGRA format so to convert it to greyscale with a bias for red and a bias against green and blue, we use the following formula:
+    post_image = 1 * post_image[:, :, 2] - 0.75 * post_image[:, :, 1] - 0.25 * post_image[:, :, 0]
+    # Normalize the image to 0-255
     post_image = np.clip(post_image, 0, 255)
+    # Convert to uint8
     post_image = post_image.astype(np.uint8)
-    post_image = cv2.blur(post_image, (15, 15))
+    # Apply a light Gaussian blur to reduce pixel noise and prevent against accidental monolayer splitting
+    post_image = cv2.blur(post_image, (4, 4))
     
     # Increase contrast
     post_image = cv2.convertScaleAbs(post_image, alpha=contrast, beta=0)
 
-    # Remove pixels below a certain brightness threshold
-    #_, post_image = cv2.threshold(post_image, threshold, 255, cv2.THRESH_TOZERO)
+    # Remove pixels below a the threshold value
     _, post_image = cv2.threshold(post_image, threshold, 255, cv2.THRESH_BINARY)
 
+    t2 = time.time()
+    print(f"Post processing complete in {t2 - t1:.2f} seconds")
+
+
     print("Saving post processed image...")
-    cv2.imwrite("Images/processed.png", post_image)
+    save_image(post_image, "Images/processed.png")
     print("Saved!")
 
-    # Draw contours on the canvas
+    # Create a copy of the canvas for contour drawing (this is slow but necessary if canvas is to be used again in future)
     contour_image = canvas.copy()
 
     print("Locating Monolayers...")
-    # Find contours
-    contours, _ = cv2.findContours(post_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Find contours on the downscaled post-processed image
+    scaled_contours, _ = cv2.findContours(post_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Scale up the contours to match the original resolution
+    contours = [contour * downscale_factor for contour in scaled_contours]
+
     for i, contour in enumerate(contours):
+        # Save the bounding box of the monolayer
         x, y, w, h = cv2.boundingRect(contour)
 
+        # Add padding to the bounding box
         x_start = max(x - monolayer_crop_padding, 0)
         y_start = max(y - monolayer_crop_padding, 0)
         x_end = min(x + w + monolayer_crop_padding, canvas.shape[1])
         y_end = min(y + h + monolayer_crop_padding, canvas.shape[0]) 
+
+        # Crop the monolayer from the original canvas
         image_section = canvas[y_start:y_end, x_start:x_end]
 
+        # Create a Monolayer object and add it to the list
         monolayers.append(Monolayer(contour, image_section, (x_start, y_start)))
 
         cx, cy = monolayers[-1].position
         
-        #print(f'Monolayer {i+1}: Center ({cx}, {cy}), Area: {area}')
+        # Mark center of the monolayer
         contour_image = cv2.circle(contour_image, (cx, cy), 5, color=(0, 0, 0, 255), thickness=-1)
     
-    cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), 4)
+    # Draw contours on the original resolution image
+    cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), 5)
     
     # Display the final image with contours
     print("Saving image with monolayers...")
-    cv2.imwrite("Images/contour.png", contour_image)
+    save_image(contour_image, "Images/contour.png", 5)
     print("Saved!")
 
+    # Sort monolayers by area
     monolayers.sort(key=operator.attrgetter('area'))
     for i, layer in enumerate(monolayers):
         print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}, Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
@@ -459,7 +511,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             x (int): The x-coordinate in nanometers.
             y (int): The y-coordinate in nanometers.
         """
-        time.sleep(0.05)
+        time.sleep(0.5)
 
 
         ################################################################################################################################### Change this back
@@ -516,6 +568,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
 When run as a script, a simple Tkinter app is created with just a LiveViewCanvas widget.
 """
 if __name__ == "__main__":
+    print(f"Using device: {accel_device}")
     # create generic Tk App with just a LiveViewCanvas widget
     print("Generating app...")
     root = tk.Tk()

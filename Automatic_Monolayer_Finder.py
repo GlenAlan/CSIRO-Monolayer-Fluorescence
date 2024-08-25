@@ -23,6 +23,10 @@ import queue
 import cv2
 import numpy as np
 import operator
+from concurrent.futures import ThreadPoolExecutor
+from skimage.measure import shannon_entropy
+import torch
+import os
 
 # These bits indicate that the stage is no longer moving.
 confirmation_bits = (2147484928, 2147484930)
@@ -33,8 +37,8 @@ nm_per_px = 171.6
 image_overlap = 0.05
 dist = int(min(camera_dims) * nm_per_px * (1-image_overlap))
 
-# TODO
-# FIX Nasty alg layout
+accel_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 def stage_setup():
     """
@@ -126,7 +130,7 @@ def move_and_wait(mcm301obj, pos, stage=(4, 5)):
         # print(f"x: {bits_x}, y:{bits_y}")
 
 
-def get_pos(mcm301obj, stages=[4, 5, 6]):
+def get_pos(mcm301obj, stages=(4, 5, 6)):
     """
     Retrieves the current position of the specified stages.
 
@@ -153,6 +157,24 @@ def get_pos(mcm301obj, stages=[4, 5, 6]):
         # Append the position to the list
         pos.append(nm[0])
     return pos
+
+
+def move_and_wait_relative(mcm301obj, pos, stage=(4, 5)):
+    """
+    Moves the stage to a specified position relative to the current position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (tuple): The desired relative position to move to, given as a tuple of x and y coordinates in nanometers.
+        stage (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+   
+    The function retrieves the current position of the specified stage, adds the relative position to it,
+    and then moves the stage to the new position. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    x_nm, y_nm = pos
+    x, y = get_pos(mcm301obj, stage)
+    move_and_wait(mcm301obj, (x + x_nm, y + y_nm), stage)
 
 
 def get_scan_area(mcm301obj):
@@ -454,6 +476,8 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
 When run as a script, a simple Tkinter app is created with just a LiveViewCanvas widget.
 """
 if __name__ == "__main__":
+    print(f'Using device: {accel_device} for image processing.')
+    
     with TLCameraSDK() as sdk:
         camera_list = sdk.discover_available_cameras()
         with sdk.open_camera(camera_list[0]) as camera:
