@@ -83,8 +83,14 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 
 ### Next Week  
 - [ ] CAMERA SETTINGS
+- [ ] Make move and wait (& relative) generalised for z axis too.
 - [ ] Add pixel -> location function
+- [ ] Fix Monolayer class image color conversion in quality functions
 - [ ] Add move specific distance function
 - [ ] Add Autofocus
 - [ ] Speed up
 - [ ] Table of statistics
+- [ ] Add a thread which is given the canvas and scales it down during image processing and displays it
+- [ ] Threaded final image save
+- [ ] Add a save and downscale image function
+- [ ] Stage accuracy
