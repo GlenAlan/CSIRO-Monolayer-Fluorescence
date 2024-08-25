@@ -18,6 +18,63 @@ from PIL import Image, ImageTk
 import typing
 import threading
 import queue
+import os
+import cv2
+
+
+def format_size(size_in_bytes):
+    """
+    Converts a file size in bytes to a human-readable string format.
+
+    Args:
+        size_in_bytes (int): The size of the file in bytes.
+
+    Returns:
+        str: The formatted size string, including the appropriate unit (B, KB, MB, GB, TB).
+    """
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size_in_bytes < 1024:
+            return f"{size_in_bytes:.2f} {unit}"
+        size_in_bytes /= 1024
+
+def scale_down_canvas(canvas, scale_factor):
+    """
+    Scales down an image canvas by a specified factor using interpolation.
+
+    Args:
+        canvas (numpy.ndarray): The original image canvas to be scaled down.
+        scale_factor (int): The factor by which to scale down the image. 
+                            A value of 1 means no scaling (returns the original image).
+
+    Returns:
+        numpy.ndarray: The scaled-down image canvas.
+    """
+    if scale_factor == 1:
+        return canvas
+    else:
+        downsampled_canvas = cv2.resize(
+            canvas,
+            (canvas.shape[1] // scale_factor, canvas.shape[0] // scale_factor),
+            interpolation=cv2.INTER_AREA
+        )
+        return downsampled_canvas
+
+def save_image(image, filename, scale_down_factor=1):
+    """
+    Saves an image to a file after optionally scaling it down.
+
+    Args:
+        image (numpy.ndarray): The image to be saved.
+        filename (str): The name of the file to save the image to.
+        scale_down_factor (int, optional): The factor by which to scale down the image before saving. 
+                                           Defaults to 1 (no scaling).
+
+    Returns:
+        None
+    """
+    cv2.imwrite(filename, scale_down_canvas(image, scale_down_factor))
+    print(format_size(os.path.getsize(filename)))
+
 
 class LiveViewCanvas(tk.Canvas):
 
