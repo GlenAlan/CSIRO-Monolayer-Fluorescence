@@ -53,7 +53,7 @@ def get_pos(mcm301obj, stages=[4, 5, 6]):
 
 def get_scan_area(mcm301obj):
     start = 0e6, 0e6
-    end = 10e6, 10e6
+    end = 2e6, 2e6
     return start, end
 
 
@@ -437,7 +437,7 @@ def post_processing(canvas, contrast=2, threshold=100):
     _, post_image = cv2.threshold(post_image, threshold, 255, cv2.THRESH_BINARY)
 
     t2 = time.time()
-    print(f"Post processing complete in {t2 - t1:.2f} seconds")
+    print(f"Time taken: {t2 - t1:.2f} seconds")
 
 
     print("Saving post processed image...")
@@ -445,7 +445,7 @@ def post_processing(canvas, contrast=2, threshold=100):
     print("Saved!")
 
     # Create a copy of the canvas for contour drawing (this is slow but necessary if canvas is to be used again in future)
-    contour_image = canvas.copy()
+    contour_image = canvas  # .copy()
 
     print("Locating Monolayers...")
 
@@ -487,7 +487,7 @@ def post_processing(canvas, contrast=2, threshold=100):
     # Sort monolayers by area
     monolayers.sort(key=operator.attrgetter('area'))
     for i, layer in enumerate(monolayers):
-        print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}, Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
+        print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}      Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
         cv2.imwrite(f"Monolayers/{i+1}.png", layer.image)
 
 
@@ -511,7 +511,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             x (int): The x-coordinate in nanometers.
             y (int): The y-coordinate in nanometers.
         """
-        time.sleep(0.5)
+        time.sleep(0.1)
 
 
         ################################################################################################################################### Change this back
@@ -521,7 +521,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
 
         ###################################################################################################################################
 
-    def scan_line(x, y, direction, x_end):
+    def scan_line(x, y, direction):
         """
         Scans a single line in the current direction, capturing images along the way.
         
@@ -529,12 +529,11 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             x (int): The current x-coordinate in nanometers.
             y (int): The current y-coordinate in nanometers.
             direction (int): The scanning direction (1 for forward, -1 for backward).
-            x_end (int): The x-coordinate to stop scanning at.
             
         Returns:
             int: The updated x-coordinate after completing the line scan.
         """
-        while (direction == 1 and x < x_end) or (direction == -1 and x > start[0]):
+        while (direction == 1 and x < end[0]) or (direction == -1 and x > start[0]):
             capture_and_store_frame(x, y)
             x += dist * direction
             move_and_wait(mcm301obj, (x, y))
@@ -550,7 +549,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
     direction = 1
     
     while y < end[1]:
-        x = scan_line(x, y, direction, end[0])
+        x = scan_line(x, y, direction)
         
         # Move to the next line
         y += dist
@@ -558,6 +557,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         
         # Reverse direction for the next line scan
         direction *= -1
+    scan_line(x, y, direction)
 
     print("\nImage capture complete!")
     print("Waiting for image processing to complete...")
@@ -594,7 +594,7 @@ if __name__ == "__main__":
     # stitching_thread.stop() # This needs a stop function
     stitching_thread.join()
 
-    cv2.destroyAllWindows()
+    # cv2.destroyAllWindows()
     print("Closing resources...")
 
     print("App terminated. Goodbye!")
