@@ -74,8 +74,8 @@ I continued working on the GUI, adding buttons for movement and labels for viewi
 # 23/08/24
 
 ### Glen
-This week I managed implement the post processing of the stitched image to enable us to identify monolayers. I added a monolayer class as to have a neat way of storing the data.
-etc... save image snippets, fancy greyscale, issues etc.
+This week I managed implement the post processing of the stitched image to enable us to identify monolayers. I added a monolayer class as to have a neat way of storing the data, this also contains functions to assess the quality of the monolayer as they are identified. This class also stores images of each individual monolayer so that they can be assessed visually later. One issue I had with the post processing for the monolayer detection was the conversion to greyscale. To be efficient with detection I wanted to bias the greyscale such that monolayers (mostly red) would appear brighter than everything else, particularly the green background. The simple approach would have been to just consider the red chanel of the image when converting to greyscale however objects that were white in the original image (such as other debris) would be just as bright. To account for this, I introduced a negative offset for any green and to a lesser extent blue pixels, clamping the result to the allowed range of 0 to 255. This meant that areas with significant green or blue components would appear darker on the greyscale image, allowing for more contrast against the monolayers for easier detection.  
+Additionally, this week I also spent time refactoring and speeding up the image stitching and processing code as this was a major sink of computation time and resulted in the program taking a long time to run. To address this I implemented several steps, firstly removing excess image saves, next enabling concurrent processing of images, using some masking techniques and finally switching some of the larger image calculations to PyTorch which allowed for GPU based CUDA acceleration. All in all this reduced the image stitching computation time by approximately 100 times. I also changed the saving and post processing steps to use scaled down versions of the canvas, speeding up the code by a further 60 times at least and saving a large amount of storage space. 
 
 
 ### Lachlan
@@ -94,3 +94,4 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 - [ ] Threaded final image save
 - [ ] Add a save and downscale image function
 - [ ] Stage accuracy
+- [ ] Save file system
