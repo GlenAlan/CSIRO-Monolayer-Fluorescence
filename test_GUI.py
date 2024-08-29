@@ -48,11 +48,19 @@ class ImageDisplay:
         self.lbl_roll = tk.Label(self.tab2)
         self.lbl_roll.pack()
 
+        # Create an entry widget
+        self.entry = tk.Entry(self.root)
+        self.entry.pack(pady=10)
+
+        # Create a button to submit the entry
+        button = tk.Button(self.root, text="Submit", command=self.get_entry_value)
+        button.pack(pady=10)
+
         # Trying to zoom in on cropped image - First creating a canvas
-        self.canvas = tk.Canvas(self.tab1, width = 1400, height = 600)
-        self.canvas.pack()
+        self.image_canvas = tk.Canvas(self.tab1, width = 1400, height = 600)
+        self.image_canvas.pack()
         # Image handling
-        self.image_path = "Images\Screenshot 2024-07-16 154534.png"
+        self.image_path = "Images/test_image4.jpg"
         self.original_image = Image.open(self.image_path) #Gets the image from file
         # Initial factors
         self.zoom_factor = 3
@@ -82,14 +90,14 @@ class ImageDisplay:
     '''
     def update_image(self):
         self.tk_image = ImageTk.PhotoImage(self.original_image) #Creates image format or something with ImageTk
-        self.canvas.create_image(650, 0, anchor=tk.NW, image=self.tk_image) #Displays the image
+        self.image_canvas.create_image(650, 0, anchor=tk.NW, image=self.tk_image) #Displays the image
         cropped_image = self.original_image.crop(self.region) #crops the image to the pixels desired
         resized_image = cropped_image.resize(
                     (int((self.region[2] - self.region[0]) * self.zoom_factor),
                     int((self.region[3] - self.region[1]) * self.zoom_factor)),
                     Image.LANCZOS) #resizes it to zoom into the cropped area - not dependent on location, just width and height
         self.tk_image_zoom = ImageTk.PhotoImage(resized_image)
-        self.canvas.create_image(0, 0, anchor = tk.NW, image = self.tk_image_zoom)
+        self.image_canvas.create_image(0, 0, anchor = tk.NW, image = self.tk_image_zoom)
 
     '''
     Movement function for button that moves the image in x and y by 50 pixels
@@ -148,8 +156,8 @@ class ImageDisplay:
         wheel_label.pack()
 
         # Create a canvas for the 360-degree wheel
-        self.canvas = tk.Canvas(wheel_frame, width=200, height=200, bg="white")
-        self.canvas.pack()
+        self.wheel_canvas = tk.Canvas(wheel_frame, width=200, height=200, bg="white")
+        self.wheel_canvas.pack()
 
         # Set up image parameters
         self.radius = 80  # Radius of the wheel
@@ -157,25 +165,25 @@ class ImageDisplay:
         self.center_y = 100  # Center Y of the wheel
 
         # Create a blank image with transparency
-        self.image = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
-        self.draw = ImageDraw.Draw(self.image)
+        self.wheel_image = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
+        self.draw = ImageDraw.Draw(self.wheel_image)
 
         # Draw the anti-aliased wheel circle
         self.draw_anti_aliased_wheel()
 
         # Convert the image to Tkinter-compatible format
-        self.tk_image = ImageTk.PhotoImage(self.image)
+        self.tk_wheel_image = ImageTk.PhotoImage(self.wheel_image)
 
         # Display the wheel on the canvas
-        self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+        self.wheel_circle = self.wheel_canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_wheel_image)
 
         # Draw the initial pointer
-        self.pointer_line = self.canvas.create_line(self.center_x, self.center_y,
+        self.pointer_line = self.wheel_canvas.create_line(self.center_x, self.center_y,
                                                     self.center_x + self.radius, self.center_y,
                                                     width=2, fill="red")
 
         # Bind mouse events to drag the wheel
-        self.canvas.bind("<B1-Motion>", self.update_wheel)
+        self.wheel_canvas.bind("<B1-Motion>", self.update_wheel)
 
         # Entry box for manually setting the angle
         self.angle_entry = tk.Entry(wheel_frame, width=5)
@@ -200,7 +208,7 @@ class ImageDisplay:
         # Update the pointer line position
         end_x = self.center_x + self.radius * math.cos(math.radians(angle))
         end_y = self.center_y + self.radius * math.sin(math.radians(angle))
-        self.canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
+        self.wheel_canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
 
 
         # Update the dummy variable 2
@@ -219,7 +227,7 @@ class ImageDisplay:
         # Update the pointer line based on the entered angle
         end_x = self.center_x + self.radius * math.cos(math.radians(angle))
         end_y = self.center_y + self.radius * math.sin(math.radians(angle))
-        self.canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
+        self.wheel_canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
 
         # Update the dummy variable 2
         self.dummy_var2.set(angle)
@@ -230,6 +238,11 @@ class ImageDisplay:
 
     def update_var2(self, value):
         print(f"Dummy Variable 2 updated to: {value}")
+
+    # Create a function to get the entry value
+    def get_entry_value(self):
+        entered_text = self.entry.get()
+        print(f"You entered: {entered_text}")
 
 # Start the Tkinter event loop
 if __name__ == "__main__":

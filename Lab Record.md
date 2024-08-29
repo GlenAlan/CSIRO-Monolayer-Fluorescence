@@ -95,3 +95,9 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 - [ ] Add a save and downscale image function
 - [ ] Stage accuracy
 - [ ] Save file system
+GUI
+- [ ] Wheel for camera rotation calibration
+- [ ] Z position slider for focus calibration
+- [ ] Enterables for position change on main tab
+- [ ] Integration with main algorithm
+- [ ] Pop up cat image
