@@ -612,6 +612,13 @@ def post_processing(canvas, contrast=2, threshold=100):
         print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}      Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
         cv2.imwrite(f"Monolayers/{i+1}.png", layer.image)
 
+    while True:
+        n = int(input("Go To Monolayer: "))+1
+        if n in range(1, len(monolayers)+2):
+            move_and_wait(mcm301obj, monolayers[n].position)
+        else:
+            print("Please enter a valid monolayer number")
+
 
 def alg(mcm301obj, image_queue, frame_queue, start, end):
     """
