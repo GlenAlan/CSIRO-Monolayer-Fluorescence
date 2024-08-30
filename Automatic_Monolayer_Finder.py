@@ -32,6 +32,7 @@ import os
 confirmation_bits = (2147484928, 2147484930, 2147483904)
 monolayer_crop_padding = 10
 
+camera_dims = [2448, 2048] # This is updated dynamically later
 camera_properties = {"gain": 255, "exposure": 150000}
 nm_per_px = 171.6
 image_overlap = 0.05
@@ -176,6 +177,11 @@ def move_and_wait_relative(mcm301obj, pos=[0, 0], stages=(4, 5)):
     """
     pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))] 
     move_and_wait(mcm301obj, pos, stages)
+
+
+def image_to_stage(center_coords, start):
+    center_coords_raw = (int((center_coords[0] - camera_dims[0])* nm_per_px + start[0]), int((center_coords[1] - camera_dims[1])* nm_per_px + start[1]))
+    return center_coords_raw
 
 
 def get_scan_area(mcm301obj):
@@ -374,7 +380,7 @@ def stitch_and_display_images(frame_queue, start, end):
 
     print("Save complete")
 
-    post_processing(canvas)
+    post_processing(canvas, start)
 
 class Monolayer:
     def __init__(self, contour, image, pos):
@@ -532,7 +538,7 @@ class Monolayer:
         
 
 
-def post_processing(canvas, contrast=2, threshold=100):
+def post_processing(canvas, start, contrast=2, threshold=74):
     t1 = time.time()
     print("Post processing...")
 
@@ -613,9 +619,12 @@ def post_processing(canvas, contrast=2, threshold=100):
         cv2.imwrite(f"Monolayers/{i+1}.png", layer.image)
 
     while True:
-        n = int(input("Go To Monolayer: "))+1
-        if n in range(1, len(monolayers)+2):
-            move_and_wait(mcm301obj, monolayers[n].position)
+        try:
+            n = int(input("Go To Monolayer: "))-1
+        except ValueError:
+            print("Please enter a valid monolayer number")
+        if n in range(0, len(monolayers)):
+            move_and_wait(mcm301obj, image_to_stage(monolayers[n].position, start))
         else:
             print("Please enter a valid monolayer number")
 
@@ -640,12 +649,12 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             x (int): The x-coordinate in nanometers.
             y (int): The y-coordinate in nanometers.
         """
-        time.sleep(2*camera_properties["exposure"]/1e6)
+        time.sleep(camera_properties["exposure"]/1e6)
 
 
         ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
-        r = random.randint(-4, 4)
+        r = random.randint(-4, 0)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
@@ -721,7 +730,7 @@ if __name__ == "__main__":
             camera.gain = camera_properties["gain"]
             camera.exposure_time_us = camera_properties["exposure"]
 
-            camera_dims = (camera.image_width_pixels, camera.image_height_pixels)
+            camera_dims = [camera.image_width_pixels, camera.image_height_pixels]
             dist = int(min(camera_dims) * nm_per_px * (1-image_overlap))
 
             camera.issue_software_trigger()
