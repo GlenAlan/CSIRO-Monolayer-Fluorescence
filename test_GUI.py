@@ -52,9 +52,8 @@ class ImageDisplay:
         self.entry = tk.Entry(self.root)
         self.entry.pack(pady=10)
 
-        # Create a button to submit the entry
-        button = tk.Button(self.root, text="Submit", command=self.get_entry_value)
-        button.pack(pady=10)
+        # Bind the Enter key to the entry widget
+        self.entry.bind('<Return>', self.get_entry_value)
 
         # Trying to zoom in on cropped image - First creating a canvas
         self.image_canvas = tk.Canvas(self.tab1, width = 1400, height = 600)
@@ -240,7 +239,7 @@ class ImageDisplay:
         print(f"Dummy Variable 2 updated to: {value}")
 
     # Create a function to get the entry value
-    def get_entry_value(self):
+    def get_entry_value(self, event=None):
         entered_text = self.entry.get()
         print(f"You entered: {entered_text}")
 
