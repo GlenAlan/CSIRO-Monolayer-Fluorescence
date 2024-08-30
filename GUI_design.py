@@ -435,7 +435,8 @@ class GUI:
         self.canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
 
         # Camera rotation calibration
-        insert camera rotation function here # parameters: rotation = angle
+        # insert camera rotation function here # parameters: rotation = angle
+        self.image_acquisition_thread._rotation_angle = angle
         print(f"Camera rotation updated to: {angle:.2f} degrees")
 
         # Updating the angle displayed
