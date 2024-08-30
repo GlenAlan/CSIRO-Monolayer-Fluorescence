@@ -109,12 +109,12 @@ class LiveViewCanvas(tk.Canvas):
         self.after(10, self._get_image)
 
 class ImageAcquisitionThread(threading.Thread):
-
-    def __init__(self, camera):
-        # type: (TLCamera) -> ImageAcquisitionThread
+    def __init__(self, camera, rotation_angle=0):
+        # type: (TLCamera, float) -> ImageAcquisitionThread
         super(ImageAcquisitionThread, self).__init__()
         self._camera = camera
         self._previous_timestamp = 0
+        self._rotation_angle = rotation_angle  # New parameter for rotation
 
         # setup color processing if necessary
         if self._camera.camera_sensor_type != SENSOR_TYPE.BAYER:
@@ -153,19 +153,41 @@ class ImageAcquisitionThread(threading.Thread):
             self._image_width = width
             self._image_height = height
             print("Image dimension change detected, image acquisition thread was updated")
+
         # color the image. transform_to_24 will scale to 8 bits per channel
-        color_image_data = self._mono_to_color_processor.transform_to_24(frame.image_buffer,
-                                                                         self._image_width,
-                                                                         self._image_height)
+        color_image_data = self._mono_to_color_processor.transform_to_24(
+            frame.image_buffer,
+            self._image_width,
+            self._image_height
+        )
         color_image_data = color_image_data.reshape(self._image_height, self._image_width, 3)
-        # return PIL Image object
-        return Image.fromarray(color_image_data, mode='RGB')
+        
+        # Create a PIL Image object
+        pil_image = Image.fromarray(color_image_data, mode='RGB')
+
+
+        # Rotate the image by the specified angle
+        if self._rotation_angle != 0:
+            pil_image = pil_image.rotate(self._rotation_angle, expand=True)
+
+
+        return pil_image
+
 
     def _get_image(self, frame):
         # type: (Frame) -> Image
         # no coloring, just scale down image to 8 bpp and place into PIL Image object
         scaled_image = frame.image_buffer >> (self._bit_depth - 8)
-        return Image.fromarray(scaled_image)
+        pil_image = Image.fromarray(scaled_image)
+
+
+        # Rotate the image by the specified angle
+        if self._rotation_angle != 0:
+            pil_image = pil_image.rotate(self._rotation_angle, expand=True)
+
+
+        return pil_image
+
 
     def run(self):
         while not self._stop_event.is_set():

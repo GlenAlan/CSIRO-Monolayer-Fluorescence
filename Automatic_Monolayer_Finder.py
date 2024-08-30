@@ -311,9 +311,6 @@ def process_image(item, canvas, start, lock):
         int((center_coords_raw[1] - start[1]) / nm_per_px + camera_dims[1])   # Y coordinate
     )
 
-    # Rotate the image 90 degrees clockwise
-    image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
-
     # Add the image to the canvas within a lock to ensure thread-safe operation
     with lock:
         add_image_to_canvas(canvas, image_np, center_coords)
@@ -538,7 +535,7 @@ class Monolayer:
         
 
 
-def post_processing(canvas, start, contrast=2, threshold=74):
+def post_processing(canvas, start, contrast=2, threshold=100):
     t1 = time.time()
     print("Post processing...")
 
@@ -719,7 +716,7 @@ if __name__ == "__main__":
             print("Generating app...")
             root = tk.Tk()
             root.title(camera.name)
-            image_acquisition_thread = ImageAcquisitionThread(camera)
+            image_acquisition_thread = ImageAcquisitionThread(camera, rotation_angle=90)
             camera_widget = LiveViewCanvas(parent=root, image_queue=image_acquisition_thread.get_output_queue())      
        
             print("Setting camera parameters...")
