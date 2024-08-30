@@ -162,8 +162,8 @@ class GUI:
         notebook.add(tab_main, text="Main Tab")
 
         # Flags to control image updates
-        self.update_active_tab1 = False
-        self.update_active_tab2 = False
+        self.update_active_main = False
+        self.update_active_calib = False
 
         # Bind tab change event
         notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
@@ -246,7 +246,7 @@ class GUI:
         self.root.after(100, self.update_image_main)
 
     def update_image_calib(self):
-        if not self.update_active_tab2:
+        if not self.update_active_calib:
             return
 
         # Update the image on calibration frame
