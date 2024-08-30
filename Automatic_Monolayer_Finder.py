@@ -29,7 +29,7 @@ import torch
 import os
 
 # These bits indicate that the stage is no longer moving.
-confirmation_bits = (2147484928, 2147484930)
+confirmation_bits = (2147484928, 2147484930, 2147483904)
 monolayer_crop_padding = 10
 
 camera_dims = (2448, 2048)
@@ -95,39 +95,41 @@ def stage_setup():
     return mcm301obj
 
 
-def move_and_wait(mcm301obj, pos, stage=(4, 5)):
+def move_and_wait(mcm301obj, pos, stages=(4, 5)):
     """
     Moves the stage to a specified position and waits for the movement to complete.
 
     Args:
         mcm301obj (MCM301): The MCM301 object that controls the stage.
-        pos (tuple): The desired position to move to, given as a tuple of x and y coordinates in nanometers.
-        stage (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+        pos (tuple): The desired position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
    
     The function converts the given nanometer position into encoder units that the stage controller can use,
     then commands the stage to move to those positions. It continues to check the status of the stage
     until it confirms that the movement is complete.
     """
-    x_nm, y_nm, = pos
-    print(f"Moving to {x_nm}, {y_nm}")
-    x, y = [0], [0]
-    stage_x, stage_y = stage
-    encoder_val_x, bits_x = [0], [0]
-    encoder_val_y, bits_y = [0], [0]
+    print(f"Moving to {', '.join(str(p) for p in pos)}")
 
-    # Convert the positions from nanometers to encoder units
-    mcm301obj.convert_nm_to_encoder(stage_x, x_nm, x)
-    mcm301obj.convert_nm_to_encoder(stage_y, y_nm, y)
+    for i, stage in enumerate(stages):
+        coord = [0]
 
-    # Move the stages to the required encoder position
-    mcm301obj.move_absolute(stage_x, x[0])
-    mcm301obj.move_absolute(stage_y, y[0])
+        # Convert the positions from nanometers to encoder units
+        mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
 
-    # Wait until the stages have finished moving by checking the status bits
-    while bits_x[0] not in confirmation_bits or bits_y[0] not in confirmation_bits:
-        mcm301obj.get_mot_status(stage_x, encoder_val_x, bits_x)
-        mcm301obj.get_mot_status(stage_y, encoder_val_y, bits_y)
-        # print(f"x: {bits_x}, y:{bits_y}")
+        # Move the stages to the required encoder position
+        mcm301obj.move_absolute(stage, coord[0])
+
+    moving = True
+    while moving:
+        moving = False
+        for i, stage in enumerate(stages):
+            # Wait until the stages have finished moving by checking the status bits
+            bit = [0]
+            mcm301obj.get_mot_status(stage, [0], bit)
+            if bit[0] not in confirmation_bits:
+                moving = True
+            # print(bit[0])
+
 
 
 def get_pos(mcm301obj, stages=(4, 5, 6)):
@@ -159,22 +161,21 @@ def get_pos(mcm301obj, stages=(4, 5, 6)):
     return pos
 
 
-def move_and_wait_relative(mcm301obj, pos, stage=(4, 5)):
+def move_and_wait_relative(mcm301obj, pos=[0, 0], stages=(4, 5)):
     """
     Moves the stage to a specified position relative to the current position and waits for the movement to complete.
 
     Args:
         mcm301obj (MCM301): The MCM301 object that controls the stage.
-        pos (tuple): The desired relative position to move to, given as a tuple of x and y coordinates in nanometers.
-        stage (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+        pos (list): The desired relative position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
    
     The function retrieves the current position of the specified stage, adds the relative position to it,
     and then moves the stage to the new position. It continues to check the status of the stage
     until it confirms that the movement is complete.
     """
-    x_nm, y_nm = pos
-    x, y = get_pos(mcm301obj, stage)
-    move_and_wait(mcm301obj, (x + x_nm, y + y_nm), stage)
+    pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))] 
+    move_and_wait(mcm301obj, pos, stages)
 
 
 def get_scan_area(mcm301obj):
@@ -203,7 +204,7 @@ def get_scan_area(mcm301obj):
 
 def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     """
-    Adds an image with an alpha channel to the canvas at the specified center coordinates.
+    Adds an image with an alpha channel to the canvas at the specified center coordinates using PyTorch for GPU acceleration.
     The image is placed with full opacity except in overlapping regions, where it is blended with transparency.
 
     Args:
@@ -215,8 +216,15 @@ def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     Returns:
         numpy.ndarray: The updated canvas with the image blended in.
     """
+    # Ensure that the image has an alpha channel
+    if image.shape[2] == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2RGBA)
 
-    img_height, img_width = image.shape[:2]
+    # Determine the smaller dimension and crop the image to a square
+    min_side = min(image.shape[0], image.shape[1])
+    cropped_image = image[:min_side, :min_side]
+
+    img_height, img_width = cropped_image.shape[:2]
     canvas_height, canvas_width = canvas.shape[:2]
 
     # Calculate start and end coordinates for the overlay
@@ -232,38 +240,78 @@ def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     region_width = x_end - x_start
     region_height = y_end - y_start
 
-    # Extract the relevant regions from the canvas and the image
-    canvas_region = canvas[y_start:y_end, x_start:x_end]
-    image_region = image[y_offset:y_offset + region_height, x_offset:x_offset + region_width]
+    # Convert the relevant regions to PyTorch tensors for GPU processing
+    canvas_region = torch.tensor(canvas[y_start:y_end, x_start:x_end], dtype=torch.float32, device=accel_device)
+    image_region = torch.tensor(cropped_image[y_offset:y_offset + region_height, x_offset:x_offset + region_width], dtype=torch.float32, device=accel_device)
 
-    # Ensure that the image region has an alpha channel
-    if image_region.shape[2] == 3:
-        image_region = cv2.cvtColor(image_region, cv2.COLOR_RGB2RGBA)
-
-    # Perform alpha blending in the overlapping regions
-    image_alpha = image_region[:, :, 3] / 255.0  # Normalize alpha channel to [0, 1]
+    # Separate the alpha channels and normalize them
+    image_alpha = (image_region[:, :, 3] / 255.0) * alpha
     canvas_alpha = canvas_region[:, :, 3] / 255.0
 
-    # Calculate the combined alpha where both images overlap
-    combined_alpha = image_alpha * alpha + canvas_alpha * (1 - image_alpha * alpha)
-    combined_alpha[combined_alpha == 0] = 1
+    # Compute the new alpha channel after blending
+    new_alpha = image_alpha + canvas_alpha * (1 - image_alpha)
+    new_alpha_safe = torch.clamp(new_alpha, min=1e-6)
 
-    # Blend only the RGB channels where the overlap occurs
-    for c in range(3):  # Loop over RGB channels
-        canvas_region[:, :, c] = np.where(
-            canvas_alpha > 0,  # Only blend in the overlapping regions
-            (image_region[:, :, c] * image_alpha * alpha + canvas_region[:, :, c] * canvas_alpha * (1 - image_alpha * alpha)) / combined_alpha,
-            image_region[:, :, c]  # Directly overlay the image where no overlap occurs
-        )
+    # Determine where the canvas is initially transparent
+    canvas_transparent_mask = (canvas_alpha == 0)
 
-    # Update the alpha channel in the canvas, ensuring full opacity where the image is placed
-    canvas_region[:, :, 3] = np.where(canvas_alpha > 0, combined_alpha * 255, 255)
+    # Directly place the image where the canvas is transparent
+    canvas_region[canvas_transparent_mask] = image_region[canvas_transparent_mask]
 
-    # Place the blended region back into the canvas
-    canvas[y_start:y_end, x_start:x_end] = canvas_region
+    # Blend the regions where there is overlap (both canvas and image have alpha)
+    blend_mask = (canvas_alpha > 0) & (image_alpha > 0)
+
+    # Blend RGB channels where there is overlap
+    for c in range(3):
+        canvas_region[:, :, c][blend_mask] = (
+            image_region[:, :, c][blend_mask] * image_alpha[blend_mask] +
+            canvas_region[:, :, c][blend_mask] * canvas_alpha[blend_mask] * (1 - image_alpha[blend_mask])
+        ) / new_alpha_safe[blend_mask]
+
+    # Update alpha to full opacity after blending (255) for areas that have been blended
+    canvas_region[:, :, 3][blend_mask] = new_alpha[blend_mask] * 255
+
+    # Convert the blended result back to a NumPy array
+    canvas[y_start:y_end, x_start:x_end] = canvas_region.cpu().numpy().astype(canvas.dtype)
 
     return canvas
 
+
+def process_image(item, canvas, start, lock):
+    """
+    Processes a single image from the queue, adds it to the canvas.
+
+    Args:
+        item (tuple): A tuple containing the image and its center coordinates.
+        canvas (numpy.ndarray): The canvas where the image will be overlaid, including an alpha channel.
+        start (tuple): The (x, y) starting coordinates of the scan area in nanometers.
+        lock (threading.Lock): A lock to ensure thread-safe updates to the canvas.
+
+    Returns:
+        None: Updates the shared canvas in-place.
+    """
+
+    image, center_coords_raw = item
+
+    # Convert the image to a numpy array and ensure it has an alpha channel
+    image_np = np.array(image)
+    image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+    if image_np.shape[2] == 3:
+        image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2RGBA)
+
+    # Calculate the coordinates on the canvas where the image center should be placed
+    center_coords = (
+        int((center_coords_raw[0] - start[0]) / nm_per_px + camera_dims[0]),  # X coordinate
+        int((center_coords_raw[1] - start[1]) / nm_per_px + camera_dims[1])   # Y coordinate
+    )
+
+    # Rotate the image 90 degrees clockwise
+    image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
+
+    # Add the image to the canvas within a lock to ensure thread-safe operation
+    with lock:
+        add_image_to_canvas(canvas, image_np, center_coords)
+        
 
 def stitch_and_display_images(frame_queue, start, end):
     """
@@ -274,126 +322,294 @@ def stitch_and_display_images(frame_queue, start, end):
         frame_queue (queue.Queue): A queue containing tuples of images and their corresponding center coordinates.
         start (tuple): The (x, y) starting coordinates of the scan area in nanometers.
         end (tuple): The (x, y) ending coordinates of the scan area in nanometers.
-        output_filename (str): The filename where the final stitched image will be saved.
     """
+
+    # Assuming square frames
+    frame_dims = min(camera_dims)  
     
     # Calculate the size of the output canvas based on the scan area and the camera dimensions
     output_size = [
-        int((end[0] - start[0]) / nm_per_px + camera_dims[0] * 2.5),  # Width of the canvas
-        int((end[1] - start[1]) / nm_per_px + camera_dims[1] * 2.5)   # Height of the canvas
+        int((end[0] - start[0]) / nm_per_px + frame_dims * 2.5),  # Width of the canvas
+        int((end[1] - start[1]) / nm_per_px + frame_dims * 2.5)   # Height of the canvas
     ]
-    
     # Initialize the canvas
     canvas = np.zeros((output_size[1], output_size[0], 4), dtype=np.uint8)  # 4 channels (RGBA)
 
-    while True:
-        # Get the next item from the frame queue
-        item = frame_queue.get()
-        
-        if item is None:
-            # Signal received that all frames are processed
-            print("Image stitching complete")
-            print("Saving final image...")
-            cv2.imwrite("Images/final.png", canvas)
-            print("Save complete")
-            break
-        
-        image, center_coords_raw = item
-        
-        # Convert the image to a numpy array and ensure it has an alpha channel
-        image_np = np.array(image)
-        image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-        if image_np.shape[2] == 3:
-            image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2RGBA)
-        
-        # Calculate the coordinates on the canvas where the image center should be placed
-        center_coords = (
-            int((center_coords_raw[0] - start[0]) / nm_per_px + camera_dims[0]),  # X coordinate
-            int((center_coords_raw[1] - start[1]) / nm_per_px + camera_dims[1])   # Y coordinate
-        )
-        
-        # Rotate the image 90 degrees clockwise
-        image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
-        
-        # Add the image to the canvas
-        canvas = add_image_to_canvas(canvas, image_np, center_coords)
-        cv2.imwrite("Images/stitch.png", canvas)
+    # Start timing right before initializing ThreadPoolExecutor
+    t1 = time.time()
+
+    # Lock for thread-safe updates to the canvas
+    lock = threading.Lock()
+
+    # Using ThreadPoolExecutor to parallelize processing of images
+    with ThreadPoolExecutor() as executor:
+        futures = []
+
+        while True:
+            # Get the next item from the frame queue
+            item = frame_queue.get()
+            
+            if item is None:
+                # Signal received that all frames are processed
+                break
+
+            # Submit a new task to the executor
+            future = executor.submit(process_image, item, canvas, start, lock)
+            futures.append(future)
+
+        # Wait for all futures to complete
+        for future in futures:
+            future.result()
+
+    # End timing after all processing is complete
+    t2 = time.time()
+    print("Image stitching complete")
+    print(f"Time taken: {t2 - t1:.2f} seconds")
+
+    print("Saving final image...")
+    #cv2.imwrite("Images/final.png", canvas)
+    #cv2.imwrite("Images/final_compressed.png", canvas, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+
+    save_image(canvas, "Images/final_downsampled.png", 10)
+
+    print("Save complete")
 
     post_processing(canvas)
 
 class Monolayer:
-    def __init__(self, contour, image):
+    def __init__(self, contour, image, pos):
         self.image = image
+        self.global_contour = contour
+
+        x_start, y_start = pos
 
         M = cv2.moments(contour)
         if M['m00'] != 0:
             self.cx = int(M['m10']/M['m00'])
             self.cy = int(M['m01']/M['m00'])
         else:
-            self.cx, self.cy = 0, 0
+            # Edge case: Area is zero; calculate centroid from the bounding box
+            x, y, w, h = cv2.boundingRect(contour)
+            self.cx = x + w // 2 
+            self.cy = y + h // 2 
         self.area_px = cv2.contourArea(contour)
         self.position = (self.cx, self.cy)
         self.area = self.area_px * (nm_per_px**2)
         self.area_um = self.area / 1e6
+
+        self.contour = contour - np.array([[x_start, y_start]])
+
+        # Compute quality metrics
+        self.smoothed_entropy = self.compute_smoothed_entropy()
+        self.total_variation_norm = self.compute_tv_norm()
+        self.local_intensity_variance = self.compute_local_intensity_variance()
+        self.contrast_to_noise_ratio = self.compute_cnr()
+        self.skewness = self.compute_skewness()
+
+    def compute_smoothed_entropy(self):
+        # Convert image to grayscale if it's not already
+        if len(self.image.shape) == 3:
+            gray_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = self.image  # Assuming the image is already grayscale
+
+        # Apply a light Gaussian blur to reduce pixel noise
+        smoothed_image = cv2.GaussianBlur(gray_image, (3, 3), 0.5)
+
+        # Create a mask for the contour
+        mask = np.zeros(self.image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [self.contour], -1, 255, thickness=cv2.FILLED)
+
+        # Masked region of interest
+        roi = cv2.bitwise_and(smoothed_image, smoothed_image, mask=mask)
+
+        # Compute entropy of the region of interest
+        entropy = shannon_entropy(roi)
+
+        return entropy
+
+    def compute_tv_norm(self):
+        # Convert image to grayscale if it's not already
+        if len(self.image.shape) == 3:
+            gray_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = self.image  # Assuming the image is already grayscale
+
+        # Apply a light Gaussian blur to reduce pixel noise
+        smoothed_image = cv2.GaussianBlur(gray_image, (3, 3), 0.5)
+
+        # Create a mask for the contour
+        mask = np.zeros(self.image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [self.contour], -1, 255, thickness=cv2.FILLED)
+
+        # Masked region of interest
+        roi = cv2.bitwise_and(smoothed_image, smoothed_image, mask=mask)
+
+        # Compute gradients using Sobel operator
+        grad_x = cv2.Sobel(roi, cv2.CV_64F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(roi, cv2.CV_64F, 0, 1, ksize=3)
+
+        # Calculate total variation norm
+        tv_norm = np.sum(np.sqrt(grad_x**2 + grad_y**2))
+
+        # Normalize by the area in pixels to make it size-independent
+        tv_norm_normalized = tv_norm / self.area_px if self.area_px != 0 else 0
+
+        return tv_norm_normalized
+
+    def compute_local_intensity_variance(self):
+        # Convert image to grayscale if it's not already
+        if len(self.image.shape) == 3:
+            gray_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = self.image  # Assuming the image is already grayscale
+
+        # Create a mask for the contour
+        mask = np.zeros(self.image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [self.contour], -1, 255, thickness=cv2.FILLED)
+
+        # Calculate local variance using a sliding window
+        kernel_size = 5
+        local_variances = []
+
+        for y in range(0, gray_image.shape[0] - kernel_size, kernel_size):
+            for x in range(0, gray_image.shape[1] - kernel_size, kernel_size):
+                if mask[y:y+kernel_size, x:x+kernel_size].any():
+                    local_patch = gray_image[y:y+kernel_size, x:x+kernel_size]
+                    local_variance = np.var(local_patch)
+                    local_variances.append(local_variance)
+
+        if local_variances:
+            return np.mean(local_variances)  # Mean variance as quality metric
+        else:
+            return 0  # If no variances are found, return zero
+
+    def compute_cnr(self):
+        # Convert image to grayscale if it's not already
+        if len(self.image.shape) == 3:
+            gray_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = self.image  # Assuming the image is already grayscale
+
+        # Create a mask for the contour
+        mask = np.zeros(self.image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [self.contour], -1, 255, thickness=cv2.FILLED)
+
+        # Calculate mean and standard deviation within the masked region
+        mean_val, stddev_val = cv2.meanStdDev(gray_image, mask=mask)
+
+        # Calculate mean intensity outside the contour
+        mask_inv = cv2.bitwise_not(mask)
+        mean_bg, _ = cv2.meanStdDev(gray_image, mask=mask_inv)
+
+        # Calculate CNR
+        cnr = abs(mean_val - mean_bg) / (stddev_val + 1e-10)  # Adding epsilon to avoid division by zero
+
+        return cnr[0][0]
+    
+    def compute_skewness(self):
+        # Convert image to grayscale if it's not already
+        if len(self.image.shape) == 3:
+            gray_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = self.image  # Assuming the image is already grayscale
+
+        # Create a mask for the contour
+        mask = np.zeros(self.image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [self.contour], -1, 255, thickness=cv2.FILLED)
+
+        # Masked region of interest
+        masked_pixels = gray_image[mask == 255]
+
+        # Calculate median and mean of the intensities
+        median_intensity = np.median(masked_pixels)
+        mean_intensity = np.mean(masked_pixels)
+
+        # Calculate the difference between median and mean intensity
+        median_minus_mean = median_intensity - mean_intensity
+
+        return median_minus_mean
         
 
 
 def post_processing(canvas, contrast=2, threshold=100):
+    t1 = time.time()
     print("Post processing...")
+
+    downscale_factor = 4
     monolayers = []
 
-    post_image = canvas.copy()
-    # Convert to More red less green
-    # We are in BGR but laying out in RGB
-    post_image = cv2.blur(post_image, (20, 20))
-    post_image = 1 * post_image[:, :, 2] + - 0.75 * post_image[:, :, 1] + -0.25 * post_image[:, :, 0]
+    # Create a downsampled version of the canvas for post-processing
+    post_image = scale_down_canvas(canvas, downscale_factor)
+
+    # post_image = cv2.blur(post_image, (5, 5)) # Optional pre grayscale blur (downscaling already blurs)
+    # Our image is in BGRA format so to convert it to greyscale with a bias for red and a bias against green and blue, we use the following formula:
+    post_image = 1 * post_image[:, :, 2] - 0.75 * post_image[:, :, 1] - 0.25 * post_image[:, :, 0]
+    # Normalize the image to 0-255
     post_image = np.clip(post_image, 0, 255)
+    # Convert to uint8
     post_image = post_image.astype(np.uint8)
-    post_image = cv2.blur(post_image, (15, 15))
+    # Apply a light Gaussian blur to reduce pixel noise and prevent against accidental monolayer splitting
+    post_image = cv2.blur(post_image, (4, 4))
     
     # Increase contrast
     post_image = cv2.convertScaleAbs(post_image, alpha=contrast, beta=0)
 
-    # Remove pixels below a certain brightness threshold
-    #_, post_image = cv2.threshold(post_image, threshold, 255, cv2.THRESH_TOZERO)
+    # Remove pixels below a the threshold value
     _, post_image = cv2.threshold(post_image, threshold, 255, cv2.THRESH_BINARY)
 
+    t2 = time.time()
+    print(f"Time taken: {t2 - t1:.2f} seconds")
+
+
     print("Saving post processed image...")
-    cv2.imwrite("Images/processed.png", post_image)
+    save_image(post_image, "Images/processed.png")
     print("Saved!")
 
-    # Draw contours on the canvas
+    # Create a copy of the canvas for contour drawing (this is slow but necessary if canvas is to be used again in future)
     contour_image = canvas.copy()
 
     print("Locating Monolayers...")
-    # Find contours
-    contours, _ = cv2.findContours(post_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Find contours on the downscaled post-processed image
+    scaled_contours, _ = cv2.findContours(post_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Scale up the contours to match the original resolution
+    contours = [contour * downscale_factor for contour in scaled_contours]
+
     for i, contour in enumerate(contours):
+        # Save the bounding box of the monolayer
         x, y, w, h = cv2.boundingRect(contour)
 
+        # Add padding to the bounding box
         x_start = max(x - monolayer_crop_padding, 0)
         y_start = max(y - monolayer_crop_padding, 0)
         x_end = min(x + w + monolayer_crop_padding, canvas.shape[1])
         y_end = min(y + h + monolayer_crop_padding, canvas.shape[0]) 
+
+        # Crop the monolayer from the original canvas
         image_section = canvas[y_start:y_end, x_start:x_end]
 
-        monolayers.append(Monolayer(contour, image_section))
+        # Create a Monolayer object and add it to the list
+        monolayers.append(Monolayer(contour, image_section, (x_start, y_start)))
 
         cx, cy = monolayers[-1].position
         
-        #print(f'Monolayer {i+1}: Center ({cx}, {cy}), Area: {area}')
+        # Mark center of the monolayer
         contour_image = cv2.circle(contour_image, (cx, cy), 5, color=(0, 0, 0, 255), thickness=-1)
     
-    cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), 4)
+    # Draw contours on the original resolution image
+    cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), 5)
     
     # Display the final image with contours
     print("Saving image with monolayers...")
-    cv2.imwrite("Images/contour.png", contour_image)
+    save_image(contour_image, "Images/contour.png", 5)
     print("Saved!")
 
+    # Sort monolayers by area
     monolayers.sort(key=operator.attrgetter('area'))
     for i, layer in enumerate(monolayers):
-        print(f"{i+1}: Area: {layer.area:.0f} um,  Centre: {layer.position}")
+        print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}      Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
         cv2.imwrite(f"Monolayers/{i+1}.png", layer.image)
 
 
@@ -417,19 +633,19 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             x (int): The x-coordinate in nanometers.
             y (int): The y-coordinate in nanometers.
         """
-        time.sleep(0.5)
+        time.sleep(0.35)
 
 
         ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
-        r = random.randint(0, 4)
-        if r != 0:
+        r = random.randint(-2, 4)
+        if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
 
         ###################################################################################################################################
 
-    def scan_line(x, y, direction, x_end):
+    def scan_line(x, y, direction):
         """
         Scans a single line in the current direction, capturing images along the way.
         
@@ -437,12 +653,11 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             x (int): The current x-coordinate in nanometers.
             y (int): The current y-coordinate in nanometers.
             direction (int): The scanning direction (1 for forward, -1 for backward).
-            x_end (int): The x-coordinate to stop scanning at.
             
         Returns:
             int: The updated x-coordinate after completing the line scan.
         """
-        while (direction == 1 and x < x_end) or (direction == -1 and x > start[0]):
+        while (direction == 1 and x < end[0]) or (direction == -1 and x > start[0]):
             capture_and_store_frame(x, y)
             x += dist * direction
             move_and_wait(mcm301obj, (x, y))
@@ -458,7 +673,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
     direction = 1
     
     while y < end[1]:
-        x = scan_line(x, y, direction, end[0])
+        x = scan_line(x, y, direction)
         
         # Move to the next line
         y += dist
@@ -466,10 +681,12 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         
         # Reverse direction for the next line scan
         direction *= -1
+    scan_line(x, y, direction)
 
     print("\nImage capture complete!")
     print("Waiting for image processing to complete...")
     frame_queue.put(None)
+
 
    
 """ Main
@@ -500,6 +717,8 @@ if __name__ == "__main__":
 
             frame_queue = queue.Queue()
 
+            
+
             mcm301obj = stage_setup()
             start, end = get_scan_area(mcm301obj)
 
@@ -517,7 +736,7 @@ if __name__ == "__main__":
             # stitching_thread.stop() # This needs a stop function
             stitching_thread.join()
 
-            cv2.destroyAllWindows()
+            # cv2.destroyAllWindows()
             print("Closing resources...")
 
     print("App terminated. Goodbye!")
