@@ -165,7 +165,7 @@ class GUI:
         self.update_active = False
 
         # Bind tab change event
-        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
+        notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
 
         self.main_frame_image = tk.Canvas(tab_main)
         self.main_frame_text = tk.Frame(tab_main, width=500, height=300, padx=50)
