@@ -28,7 +28,7 @@ from MCM301_COMMAND_LIB import *
 
 from custom_definitions import *
 
-confirmation_bits = (2147484928, 2147484930)
+confirmation_bits = (2147484928, 2147484930, 2147483904)
 camera_dims = [2448, 2048] # This is updated dynamically later
 camera_properties = {"gain": 255, "exposure": 150000}
 nm_per_px = 171.6
@@ -125,6 +125,30 @@ def move_and_wait(mcm301obj, pos, stages=(4, 5)):
                 moving = True
             # print(bit[0])
 
+def move_no_wait(mcm301obj, pos, stages=(4, 5)):
+    """
+    Moves the stage to a specified position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (tuple): The desired position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+   
+    The function converts the given nanometer position into encoder units that the stage controller can use,
+    then commands the stage to move to those positions. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    print(f"Moving to {', '.join(str(p) for p in pos)}")
+
+    for i, stage in enumerate(stages):
+        coord = [0]
+
+        # Convert the positions from nanometers to encoder units
+        mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
+
+        # Move the stages to the required encoder position
+        mcm301obj.move_absolute(stage, coord[0])
+
 
 
 def get_pos(mcm301obj, stages=(4, 5, 6)):
@@ -162,7 +186,7 @@ def move_and_wait_relative(mcm301obj, pos=[0, 0], stages=(4, 5)):
 
     Args:
         mcm301obj (MCM301): The MCM301 object that controls the stage.
-        pos (list): The desired relative position to move to, given as a tuple of coordinates in nanometers.
+        pos (list): The desired relative position to move to, given as a list of coordinates in nanometers.
         stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
    
     The function retrieves the current position of the specified stage, adds the relative position to it,
@@ -171,6 +195,23 @@ def move_and_wait_relative(mcm301obj, pos=[0, 0], stages=(4, 5)):
     """
     pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))] 
     move_and_wait(mcm301obj, pos, stages)
+
+
+def move_no_wait_relative(mcm301obj, pos=[0, 0], stages=(4, 5)):
+    """
+    Moves the stage to a specified position relative to the current position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (list): The desired relative position to move to, given as a list of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+   
+    The function retrieves the current position of the specified stage, adds the relative position to it,
+    and then moves the stage to the new position. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))] 
+    move_no_wait(mcm301obj, pos, stages)
 
 class GUI:
     def __init__(self, root, camera):
@@ -334,22 +375,22 @@ class GUI:
         calib_button_focus_label = tk.Label(self.calib_frame_text, text="Focus Slider (Dummy Variable 1):")
         calib_button_focus_label.grid(row=0, column=2, pady=10)
 
-        calib_btn_up = tk.Button(calib_button_focus_label, text="Up", command = lambda: move_and_wait(self.mcm301obj, pos = dist/2, stages=5))
+        calib_btn_up = tk.Button(calib_button_focus_label, text="Up", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(dist/2)], stages=(5,)))
         calib_btn_up.grid(row=0, column=1)
 
-        calib_btn_left = tk.Button(calib_button_focus_label, text="Left", command = lambda: move_and_wait(self.mcm301obj, pos = -dist/2, stages=4))
+        calib_btn_left = tk.Button(calib_button_focus_label, text="Left", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(-dist/2)], stages=(4,)))
         calib_btn_left.grid(row=1, column=0)
 
-        calib_btn_right = tk.Button(calib_button_focus_label, text="Right", command = lambda: move_and_wait(self.mcm301obj, pos = dist/2, stages=4))
+        calib_btn_right = tk.Button(calib_button_focus_label, text="Right", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(dist/2)], stages=(4,)))
         calib_btn_right.grid(row=1, column=2)
 
-        calib_btn_down = tk.Button(calib_button_focus_label, text="Down", command = lambda: move_and_wait(self.mcm301obj, pos = -dist/2, stages=5))
+        calib_btn_down = tk.Button(calib_button_focus_label, text="Down", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(-dist/2)], stages=(5,)))
         calib_btn_down.grid(row=2, column=1)
 
-        calib_btn_zoom_in = tk.Button(calib_button_focus_label, text="Zoom in", command = lambda: move_and_wait(self.mcm301obj, pos = 500000, stages=6))
+        calib_btn_zoom_in = tk.Button(calib_button_focus_label, text="Zoom in", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(10000)], stages=(6,)))
         calib_btn_zoom_in.grid(row=0, column=4)
 
-        calib_btn_zoom_out = tk.Button(calib_button_focus_label, text="Zoom out", command = lambda: move_and_wait(self.mcm301obj, pos = -500000, stages=6))
+        calib_btn_zoom_out = tk.Button(calib_button_focus_label, text="Zoom out", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(-10000)], stages=(6,)))
         calib_btn_zoom_out.grid(row=2, column=4)
 
     # def move(self, dx=0, dy=0):
@@ -369,7 +410,7 @@ class GUI:
         slider_focus_label = ttk.Label(self.calib_frame_text, text="Focus Slider (Dummy Variable 1):")
         slider_focus_label.grid(row=0, column=0, pady=10)
 
-        slider_focus = tk.Scale(self.calib_frame_text, from_=1000000, to=4000000, orient='vertical', command = lambda: move_and_wait(self.mcm301obj, stages=6))
+        slider_focus = tk.Scale(self.calib_frame_text, from_=100000, to=1000000, orient='vertical', command = lambda: move_no_wait(self.mcm301obj, stages=(6,)))
         slider_focus.grid(row=0, column=1, padx=20, pady=10)
     
     def create_360_wheel(self):

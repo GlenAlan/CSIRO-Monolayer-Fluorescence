@@ -704,50 +704,6 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
     print("Waiting for image processing to complete...")
     frame_queue.put(None)
 
-current_image_on_canvas = None
-
-def update_display():
-    """
-    Polls the display_canvas_queue for the latest canvas and updates the Tkinter canvas widget.
-    """
-    global current_image_on_canvas
-
-
-    try:
-        # Get the latest canvas from the queue without blocking
-        latest_canvas = display_canvas_queue.get_nowait()
-
-
-        # Convert the NumPy array (canvas) to a PIL Image
-        image = Image.fromarray(latest_canvas)
-
-
-        # Convert the PIL Image to an ImageTk object
-        tk_image = ImageTk.PhotoImage(image)
-
-
-        # Update the Tkinter canvas widget with the new image
-        if current_image_on_canvas is None:
-            # If this is the first image, create an image item on the canvas
-            current_image_on_canvas = display.create_image(0, 0, anchor=tk.NW, image=tk_image)
-        else:
-            # If the image already exists, update the existing image
-            display.itemconfig(current_image_on_canvas, image=tk_image)
-
-
-        # Keep a reference to the image to prevent garbage collection
-        display.image = tk_image
-
-
-    except queue.Empty:
-        # If the queue is empty, simply pass
-        pass
-
-
-    # Schedule the next update
-    root.after(100, update_display)
-
-
 
    
 """ Main
@@ -765,11 +721,7 @@ if __name__ == "__main__":
             root = tk.Tk()
             root.title(camera.name)
             image_acquisition_thread = ImageAcquisitionThread(camera, rotation_angle=270)
-            camera_widget = LiveViewCanvas(parent=root, image_queue=image_acquisition_thread.get_output_queue())     
-
-            display = tk.Canvas(root, width=700, height=700)
-            display.pack()
-            root.after(100, update_display)
+            camera_widget = LiveViewCanvas(parent=root, image_queue=image_acquisition_thread.get_output_queue())      
        
             print("Setting camera parameters...")
 
