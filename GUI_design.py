@@ -252,7 +252,7 @@ class GUI:
 
         # Label for position enter
         self.enter_pos = tk.Label(self.main_frame_text)
-        self.enter_pos.pack(pady=10)
+        self.enter_pos.grid(row=0, pady=10)
 
         # Create an entry widget in main tab 
         self.pos_entry_x = tk.Entry(self.main_frame_text)
@@ -362,9 +362,7 @@ class GUI:
             # Show an error message if either entry is empty
             messagebox.showerror("Input Error", "Both fields are required!")
         else:
-            # Process the input (here we just print it)
-            print(f"First Name: {first_name}")
-            print(f"Last Name: {last_name}")
+            # Move function when the values have been entered
             move_and_wait(self.mcm301obj, pos=[enter_x,enter_y])
             # Clear the entries
             enter_x.delete(0, tk.END)
