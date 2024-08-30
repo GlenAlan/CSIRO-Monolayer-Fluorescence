@@ -82,17 +82,17 @@ Additionally, this week I also spent time refactoring and speeding up the image 
 On the GUI I created a canvas which displayed a live view of the image from the camera. I ran into image queueing and threading issues so I fixed this by changing where the threading was being called. I tested everything in a test GUI file before trying to implement it into the main GUI file. One thing I was able to successfully do in the test GUI was move around a stock photo with buttons. This was not working last week because of threading and garbaging issues. I implemented a slider which will be used for changing the zoom and a 360 degree interactive wheel which will be used for rotating the camera. I had to change everything to be inside a class so it is easier to call functions that will update the windows such as the wheel.
 
 ### Next Week  
-- [ ] CAMERA SETTINGS
-- [ ] Make move and wait (& relative) generalised for z axis too.
+- [X] CAMERA SETTINGS (basic)
+- [X] Make move and wait (& relative) generalised for z axis too.
 - [ ] Add pixel -> location function
 - [ ] Fix Monolayer class image color conversion in quality functions
-- [ ] Add move specific distance function
+- [X] Add move specific distance function
 - [ ] Add Autofocus
-- [ ] Speed up
+- [X] Speed up
 - [ ] Table of statistics
 - [ ] Add a thread which is given the canvas and scales it down during image processing and displays it
 - [ ] Threaded final image save
-- [ ] Add a save and downscale image function
+- [X] Add a save and downscale image function
 - [ ] Stage accuracy
 - [ ] Save file system
 GUI
@@ -101,3 +101,11 @@ GUI
 - [ ] Enterables for position change on main tab
 - [ ] Integration with main algorithm
 - [ ] Pop up cat image
+
+
+# 30/08/24
+
+
+### Next Week
+- [ ] Lab Report Drafting
+- [ ] Camera settings (advanced)
