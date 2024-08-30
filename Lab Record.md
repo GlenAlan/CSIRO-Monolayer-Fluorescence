@@ -84,7 +84,7 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 ### Next Week  
 - [X] CAMERA SETTINGS (basic)
 - [X] Make move and wait (& relative) generalised for z axis too.
-- [X] Add pixel -> location function
+- [ ] Add pixel -> location function
 - [ ] Fix Monolayer class image color conversion in quality functions
 - [X] Add move specific distance function
 - [X] Added a goto monolayers
@@ -97,8 +97,8 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 - [ ] Stage accuracy
 - [ ] Save file system
 GUI
-- [ ] Wheel for camera rotation calibration
-- [ ] Z position slider for focus calibration
+- [X] Wheel for camera rotation calibration
+- [X] Z position slider for focus calibration
 - [X] Enterables for position change on main tab
 - [ ] Integration with main algorithm
 - [ ] Pop up cat image
@@ -110,4 +110,6 @@ GUI
 ### Next Week
 - [ ] Lab Report Drafting
 - [ ] Camera settings (advanced)
-- [ ] Progress bar
+- [ ] Have mm, um, and nm option for position on main tab
+- [ ] Create better framing for calibration tab
+- [ ] Check: Test enterables for X,Y,Z
