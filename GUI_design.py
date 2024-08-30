@@ -256,9 +256,9 @@ class GUI:
 
         # Create an entry widget in main tab 
         self.pos_entry_x = tk.Entry(self.main_frame_text)
-        self.pos_entry_x.pack(pady=10)
+        self.pos_entry_x.grid(row=1, column=0, pady=10)
         self.pos_entry_y = tk.Entry(self.main_frame_text)
-        self.pos_entry_y.pack(pady=10)
+        self.pos_entry_y.grid(row=1, column=1, pady=10)
 
         # Bind the Enter key to the entry widget
         self.pos_entry_x.bind('<Return>', self.submit_entries)
