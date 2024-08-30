@@ -198,6 +198,9 @@ class ImageDisplay:
             outline="black", width=2
         )
 
+    '''
+    Updates the pointer on the wheel and calls the move_and_wait function to 
+    '''
     def update_wheel(self, event):
         # Calculate angle from center to current mouse position
         dx = event.x - self.center_x
@@ -208,7 +211,6 @@ class ImageDisplay:
         end_x = self.center_x + self.radius * math.cos(math.radians(angle))
         end_y = self.center_y + self.radius * math.sin(math.radians(angle))
         self.wheel_canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
-
 
         # Update the dummy variable 2
         self.dummy_var2.set(angle)

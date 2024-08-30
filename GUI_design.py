@@ -29,6 +29,11 @@ from MCM301_COMMAND_LIB import *
 from custom_definitions import *
 
 confirmation_bits = (2147484928, 2147484930)
+camera_dims = [2448, 2048] # This is updated dynamically later
+camera_properties = {"gain": 255, "exposure": 150000}
+nm_per_px = 171.6
+image_overlap = 0.05
+dist = int(min(camera_dims) * nm_per_px * (1-image_overlap))
 
 
 def stage_setup():
@@ -85,60 +90,62 @@ def stage_setup():
 
     return mcm301obj
 
-def move_and_wait(mcm301obj, pos, stage=(4, 5)):
+def move_and_wait(mcm301obj, pos, stages=(4, 5)):
     """
     Moves the stage to a specified position and waits for the movement to complete.
 
     Args:
         mcm301obj (MCM301): The MCM301 object that controls the stage.
-        pos (tuple): The desired position to move to, given as a tuple of x and y coordinates in nanometers.
-        stage (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
-    
+        pos (tuple): The desired position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+   
     The function converts the given nanometer position into encoder units that the stage controller can use,
-    then commands the stage to move to those positions. It continues to check the status of the stage 
+    then commands the stage to move to those positions. It continues to check the status of the stage
     until it confirms that the movement is complete.
     """
-    x_nm, y_nm, = pos
-    print(f"Moving to {x_nm}, {y_nm}")
-    x, y = [0], [0]
-    stage_x, stage_y = stage
-    encoder_val_x, bits_x = [0], [0]
-    encoder_val_y, bits_y = [0], [0]
+    print(f"Moving to {', '.join(str(p) for p in pos)}")
 
-    # Convert the positions from nanometers to encoder units
-    mcm301obj.convert_nm_to_encoder(stage_x, x_nm, x)
-    mcm301obj.convert_nm_to_encoder(stage_y, y_nm, y)
+    for i, stage in enumerate(stages):
+        coord = [0]
 
-    # Move the stages to the required encoder position
-    mcm301obj.move_absolute(stage_x, x[0])
-    mcm301obj.move_absolute(stage_y, y[0])
+        # Convert the positions from nanometers to encoder units
+        mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
 
-    # Wait until the stages have finished moving by checking the status bits
-    while bits_x[0] not in confirmation_bits or bits_y[0] not in confirmation_bits:
-        mcm301obj.get_mot_status(stage_x, encoder_val_x, bits_x)
-        mcm301obj.get_mot_status(stage_y, encoder_val_y, bits_y)
-        # print(f"x: {bits_x}, y:{bits_y}")
+        # Move the stages to the required encoder position
+        mcm301obj.move_absolute(stage, coord[0])
 
-def get_pos(mcm301obj, stages=[4, 5, 6]):
+    moving = True
+    while moving:
+        moving = False
+        for i, stage in enumerate(stages):
+            # Wait until the stages have finished moving by checking the status bits
+            bit = [0]
+            mcm301obj.get_mot_status(stage, [0], bit)
+            if bit[0] not in confirmation_bits:
+                moving = True
+            # print(bit[0])
+
+
+
+def get_pos(mcm301obj, stages=(4, 5, 6)):
     """
     Retrieves the current position of the specified stages.
 
     Args:
         mcm301obj (MCM301): The MCM301 object that controls the stage.
         stages (list): A list of stage numbers for which the positions are to be retrieved.
-    
+   
     Returns:
-        pos (list): A list of positions corresponding to the specified stages, 
+        pos (list): A list of positions corresponding to the specified stages,
                     in nanometers.
-    
-    The function queries the current encoder value for each specified stage, 
+   
+    The function queries the current encoder value for each specified stage,
     converts that value into nanometers, and returns the positions as a list.
     """
     pos = []
     for stage in stages:
         encoder_val, nm = [0], [0]
-
-        # Get the current encoder value for the stage
+         # Get the current encoder value for the stage
         mcm301obj.get_mot_status(stage, encoder_val, [0])
 
         # Convert the encoder value to nanometers
@@ -147,6 +154,23 @@ def get_pos(mcm301obj, stages=[4, 5, 6]):
         # Append the position to the list
         pos.append(nm[0])
     return pos
+
+
+def move_and_wait_relative(mcm301obj, pos=[0, 0], stages=(4, 5)):
+    """
+    Moves the stage to a specified position relative to the current position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (list): The desired relative position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+   
+    The function retrieves the current position of the specified stage, adds the relative position to it,
+    and then moves the stage to the new position. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))] 
+    move_and_wait(mcm301obj, pos, stages)
 
 class GUI:
     def __init__(self, root, camera):
@@ -274,14 +298,8 @@ class GUI:
                 label.grid(row = i, column = 2)
 
     def create_control_buttons(self):
-        # List of button names, positions, and other arrays used in the tk buttons and labels
-        # btn_names = [
-        #     f"Move to {btn_pos_nav[0]}",
-        #     f"Move to {btn_pos_nav[1]}",
-        #     "Zoom in \'some amount\'",
-        #     "Zoom out \'some amount\'",
-        # ]
-        # btn_positions = [[0, 0], [0, 1], [1, 0], [1, 1]]
+        ## Main frame controls
+        # List of position names and other arrays used in the tk buttons and labels
         self.pos_names = [
             "Pos X",
             "Pos Y",
@@ -311,16 +329,47 @@ class GUI:
         self.main_frame_text_pos = tk.Frame(self.main_frame_text, padx = 25)
         self.main_frame_text_pos.grid(row=2, sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
     
+        ## Calibration frame controls
+        # Z controls next to slider
+        calib_button_focus_label = tk.Label(self.calib_frame_text, text="Focus Slider (Dummy Variable 1):")
+        calib_button_focus_label.grid(row=0, column=2, pady=10)
+
+        calib_btn_up = tk.Button(calib_button_focus_label, text="Up", command = lambda: move_and_wait(self.mcm301obj, pos = dist/2, stages=5))
+        calib_btn_up.grid(row=0, column=1)
+
+        calib_btn_left = tk.Button(calib_button_focus_label, text="Left", command = lambda: move_and_wait(self.mcm301obj, pos = -dist/2, stages=4))
+        calib_btn_left.grid(row=1, column=0)
+
+        calib_btn_right = tk.Button(calib_button_focus_label, text="Right", command = lambda: move_and_wait(self.mcm301obj, pos = dist/2, stages=4))
+        calib_btn_right.grid(row=1, column=2)
+
+        calib_btn_down = tk.Button(calib_button_focus_label, text="Down", command = lambda: move_and_wait(self.mcm301obj, pos = -dist/2, stages=5))
+        calib_btn_down.grid(row=2, column=1)
+
+        calib_btn_zoom_in = tk.Button(calib_button_focus_label, text="Zoom in", command = lambda: move_and_wait(self.mcm301obj, pos = 500000, stages=6))
+        calib_btn_zoom_in.grid(row=0, column=4)
+
+        calib_btn_zoom_out = tk.Button(calib_button_focus_label, text="Zoom out", command = lambda: move_and_wait(self.mcm301obj, pos = -500000, stages=6))
+        calib_btn_zoom_out.grid(row=2, column=4)
+
+    # def move(self, dx=0, dy=0):
+    #     self.region[0] += 50*dx
+    #     self.region[2] += 50*dx
+    #     self.region[1] += 50*dy
+    #     self.region[3] += 50*dy
+    #     move_and_wait_relative(self.mcm301obj, stages=6)
+    #     self.update_image()
+
     def create_sliders(self):
-        # Calibration adjustment sliders. Currently there is a focus (z pos) slider. To include camer rotation wheel.
+        # Calibration adjustment sliders. Currently there is a focus (z pos) slider. To include camera rotation wheel.
         # Sliders do not have variable or command assigned to it yet.
         # First slider needs z position function. Second slider needs camera rotation function.
 
-        # Slider 1
-        slider_focus_label = ttk.Label(self.calib_frame_text, text="Dummy Variable 1:")
+        # Slider for focus (z position)
+        slider_focus_label = ttk.Label(self.calib_frame_text, text="Focus Slider (Dummy Variable 1):")
         slider_focus_label.grid(row=0, column=0, pady=10)
 
-        slider_focus = tk.Scale(self.calib_frame_text, from_=0, to=100, orient='vertical',)
+        slider_focus = tk.Scale(self.calib_frame_text, from_=1000000, to=4000000, orient='vertical', command = lambda: move_and_wait(self.mcm301obj, stages=6))
         slider_focus.grid(row=0, column=1, padx=20, pady=10)
     
     def create_360_wheel(self):
@@ -385,11 +434,13 @@ class GUI:
         end_y = self.center_y + self.radius * math.sin(math.radians(angle))
         self.canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
 
-        # Update the dummy variable 2
-        self.dummy_var2.set(angle)
+        # Camera rotation calibration
+        insert camera rotation function here # parameters: rotation = angle
+        print(f"Camera rotation updated to: {angle:.2f} degrees")
+
+        # Updating the angle displayed
         self.angle_entry.delete(0, tk.END)
         self.angle_entry.insert(0, f"{angle:.2f}")
-        print(f"Dummy Variable 2 updated to: {angle:.2f} degrees")
     
     # Function to handle the submit action
     def submit_entries(self, event=None):
@@ -403,7 +454,7 @@ class GUI:
             messagebox.showerror("Input Error", "Both fields must be integers!")
         else:
             # Move function when the values have been entered
-            threading.Thread(target=lambda: move_and_wait(self.mcm301obj, pos=[int(enter_x),int(enter_y)])).start()
+            threading.Thread(target=lambda: move_and_wait(self.mcm301obj, pos=[int(enter_x)*1000000,int(enter_y)*1000000])).start()
             # # Clear the entries
             # enter_x.delete(0, tk.END)
             # enter_y.delete(0, tk.END)
@@ -422,7 +473,7 @@ class GUI:
 
         # Update the dummy variable 2
         self.dummy_var2.set(angle)
-        print(f"Dummy Variable 2 set to: {angle:.2f} degrees")
+        print(f"Camera rotation set to: {angle:.2f} degrees")
 
 """
 Main. Runs the main code that create the root window from tkinter and everything inside it.
