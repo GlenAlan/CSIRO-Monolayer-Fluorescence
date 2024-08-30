@@ -176,7 +176,7 @@ class GUI:
         self.camera = camera
         # Sources images from camera
         # The images are placed on a Canvas later, depending on the current tab active, to reduce lag
-        image_acquisition_thread = ImageAcquisitionThread(self.camera)
+        self.image_acquisition_thread = ImageAcquisitionThread(self.camera, rotation_angle=90)
         self.vel = 50 # not sure what this does         
     
         # Camera parameters
@@ -187,7 +187,7 @@ class GUI:
 
         # Starting image acquisition thread
         print("Starting image acquisition thread...")
-        image_acquisition_thread.start()
+        self.image_acquisition_thread.start()
 
         # Initialises object
         self.mcm301obj = stage_setup()
@@ -217,8 +217,8 @@ class GUI:
         self.create_sliders()
 
         self.create_360_wheel()
-        
-        self.update()
+
+        threading.Thread(target=self.update).start()
 
     def on_tab_change(self, event):
         selected_tab = event.widget.index("current")
@@ -243,7 +243,6 @@ class GUI:
         self.camera_widget_main = LiveViewCanvas(parent=self.main_frame_image, image_queue=self.image_acquisition_thread.get_output_queue())
 
         # Schedule the next update for Tab 1
-        self.root.after(100, self.update_image_main)
 
     def update_image_calib(self):
         if not self.update_active_calib:
@@ -254,29 +253,25 @@ class GUI:
         self.camera_widget_calib = LiveViewCanvas(parent=self.calib_frame_image, image_queue=self.image_acquisition_thread.get_output_queue())
 
         # Schedule the next update for Tab 2
-        self.root.after(100, self.update_image_calib)
 
     def update(self):
-        threading.Thread(target=self.update_positions).start()
-        self.root.after(100, self.update)
-
-    def update_positions(self):
-        # Positions - Live view of X,Y, and Z (focus) required
-        for i, name in enumerate(self.pos_names):
-            label = tk.Label(self.main_frame_text_pos, text = name, padx = 10, pady = 5)
-            label.grid(row = i, column = 0)
-            label = tk.Label(self.calib_frame_text_pos, text = name, padx = 10, pady = 5)
-            label.grid(row = i, column = 0)
-        for i in range(len(self.pos_names)):
-            label = tk.Label(self.main_frame_text_pos, text = f'{get_pos(self.mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
-            label.grid(row = i, column = 1)
-            label = tk.Label(self.calib_frame_text_pos, text = f'{get_pos(self.mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
-            label.grid(row = i, column = 1)
-        for i in range(2):
-            label = tk.Label(self.main_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
-            label.grid(row = i, column = 2)
-            label = tk.Label(self.calib_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
-            label.grid(row = i, column = 2)
+        while True:
+            # Positions - Live view of X,Y, and Z (focus) required
+            for i, name in enumerate(self.pos_names):
+                label = tk.Label(self.main_frame_text_pos, text = name, padx = 10, pady = 5)
+                label.grid(row = i, column = 0)
+                label = tk.Label(self.calib_frame_text_pos, text = name, padx = 10, pady = 5)
+                label.grid(row = i, column = 0)
+            for i in range(len(self.pos_names)):
+                label = tk.Label(self.main_frame_text_pos, text = f'{get_pos(self.mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
+                label.grid(row = i, column = 1)
+                label = tk.Label(self.calib_frame_text_pos, text = f'{get_pos(self.mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
+                label.grid(row = i, column = 1)
+            for i in range(2):
+                label = tk.Label(self.main_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
+                label.grid(row = i, column = 2)
+                label = tk.Label(self.calib_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
+                label.grid(row = i, column = 2)
 
     def create_control_buttons(self):
         # List of button names, positions, and other arrays used in the tk buttons and labels
