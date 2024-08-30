@@ -280,8 +280,6 @@ def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     # Convert the blended result back to a NumPy array
     canvas[y_start:y_end, x_start:x_end] = canvas_region.cpu().numpy().astype(canvas.dtype)
 
-    display_canvas_queue.put(scale_down_canvas(canvas, 10))
-
     return canvas
 
 
@@ -655,7 +653,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
 
         ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
-        r = random.randint(-12, 4)
+        r = random.randint(-12, 0)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
@@ -741,7 +739,6 @@ if __name__ == "__main__":
             image_queue = image_acquisition_thread.get_output_queue()
 
             frame_queue = queue.Queue()
-            display_canvas_queue = queue.Queue()
 
             mcm301obj = stage_setup()
             start, end = get_scan_area(mcm301obj)
