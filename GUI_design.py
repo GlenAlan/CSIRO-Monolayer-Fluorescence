@@ -161,6 +161,12 @@ class GUI:
         tab_main = ttk.Frame(notebook)
         notebook.add(tab_main, text="Main Tab")
 
+        # Flag to control image updates
+        self.update_active = False
+
+        # Bind tab change event
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
+
         self.main_frame_image = tk.Canvas(tab_main)
         self.main_frame_text = tk.Frame(tab_main, width=500, height=300, padx=50)
         self.main_frame_image.pack(side = 'left')
@@ -169,7 +175,7 @@ class GUI:
         self.camera = camera
         # Sources images from camera and places it on canvas
         image_acquisition_thread = ImageAcquisitionThread(self.camera)
-        self.camera_widget_main = LiveViewCanvas(parent=self.main_frame_image, image_queue=image_acquisition_thread.get_output_queue())
+        # self.camera_widget_main = LiveViewCanvas(parent=self.main_frame_image, image_queue=image_acquisition_thread.get_output_queue())
         self.vel = 50 # not sure what this does         
     
         # Camera parameters
@@ -198,7 +204,7 @@ class GUI:
         self.calib_frame_text_pos.grid(row=2 , sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
         
         # Live image view in calibration tab
-        self.camera_widget_calib = LiveViewCanvas(parent=self.calib_frame_image, image_queue=image_acquisition_thread.get_output_queue())
+        # self.camera_widget_calib = LiveViewCanvas(parent=self.calib_frame_image, image_queue=image_acquisition_thread.get_output_queue())
 
         # Results tab
         tab_results = ttk.Frame(notebook)
@@ -215,8 +221,23 @@ class GUI:
         self.create_360_wheel()
         
         self.update()
+    
+    def on_tab_change(self, event):
+        selected_tab = event.widget.index("current")
+        if selected_tab == 0:  # Assuming live view tab is the first tab
+            self.main_frame_image.delete("all")
+            self.calib_frame_image.delete("all")
+            self.camera_widget_main = LiveViewCanvas(parent=self.main_frame_image, image_queue=self.image_acquisition_thread.get_output_queue())
+        elif selected_tab == 1:  # Assuming live view tab is the first tab
+            self.main_frame_image.delete("all")
+            self.calib_frame_image.delete("all")
+            self.camera_widget_calib = LiveViewCanvas(parent=self.calib_frame_image, image_queue=self.image_acquisition_thread.get_output_queue())
 
     def update(self):
+        threading.Thread(target=self.update_positions).start()
+        root.after(100, self.update)
+
+    def update_positions(self):
         # Positions - Live view of X,Y, and Z (focus) required
         for i, name in enumerate(self.pos_names):
             label = tk.Label(self.main_frame_text_pos, text = name, padx = 10, pady = 5)
@@ -233,7 +254,6 @@ class GUI:
             label.grid(row = i, column = 2)
             label = tk.Label(self.calib_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
             label.grid(row = i, column = 2)
-        root.after(100, self.update)
 
     def create_control_buttons(self):
         # List of button names, positions, and other arrays used in the tk buttons and labels
@@ -361,9 +381,11 @@ class GUI:
         if not enter_x or not enter_y:
             # Show an error message if either entry is empty
             messagebox.showerror("Input Error", "Both fields are required!")
+        elif not enter_x.isdigit() or not enter_y.isdigit():
+            messagebox.showerror("Input Error", "Both fields must be integers!")
         else:
             # Move function when the values have been entered
-            threading.Thread(target=lambda:move_and_wait(self.mcm301obj, pos=[int(enter_x),int(enter_y)])).start()
+            threading.Thread(target=lambda: move_and_wait(self.mcm301obj, pos=[int(enter_x),int(enter_y)])).start()
             # # Clear the entries
             # enter_x.delete(0, tk.END)
             # enter_y.delete(0, tk.END)
