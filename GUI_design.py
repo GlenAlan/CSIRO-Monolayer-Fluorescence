@@ -366,8 +366,9 @@ class GUI:
         self.pos_entry_z.grid(row=2, column=4, pady=10) #to update row and column
 
         # Bind the Enter key to the entry widget
-        self.pos_entry_x.bind('<Return>', self.submit_entries)
-        self.pos_entry_y.bind('<Return>', self.submit_entries)
+        self.pos_entry_x.bind('<Return>', lambda event, type = "XY": self.submit_entries(type))
+        self.pos_entry_y.bind('<Return>', lambda event, type = "XY": self.submit_entries(type))
+        self.pos_entry_z.bind('<Return>', lambda event, type = "Z": self.submit_entries(type))
 
         # Create buttons in main tab and place them in the grid - origin, set start, set end required
         # for i, btn_pos in enumerate(btn_pos_nav):
@@ -482,22 +483,31 @@ class GUI:
         self.angle_entry.delete(0, tk.END)
         self.angle_entry.insert(0, f"{angle:.2f}")
     
-    # Function to handle the submit action
-    def submit_entries(self, event=None):
-        enter_x = self.pos_entry_x.get().strip()
-        enter_y = self.pos_entry_y.get().strip()
+    # Function to handle the submit action for X and Y
+    def submit_entries_pos(self, event=None, type="XY"):
+        if type == "XY":
+            enter_x = self.pos_entry_x.get().strip()
+            enter_y = self.pos_entry_y.get().strip()
 
-        if not enter_x or not enter_y:
-            # Show an error message if either entry is empty
-            messagebox.showerror("Input Error", "Both fields are required!")
-        elif not enter_x.isdigit() or not enter_y.isdigit():
-            messagebox.showerror("Input Error", "Both fields must be integers!")
-        else:
-            # Move function when the values have been entered
-            threading.Thread(target=lambda: move_and_wait(self.mcm301obj, pos=[int(enter_x)*1000000,int(enter_y)*1000000])).start()
-            # # Clear the entries
-            # enter_x.delete(0, tk.END)
-            # enter_y.delete(0, tk.END)
+            if not enter_x or not enter_y:
+                # Show an error message if either entry is empty
+                messagebox.showerror("Input Error", "Both fields are required!")
+            elif not enter_x.isdigit() or not enter_y.isdigit():
+                messagebox.showerror("Input Error", "Both fields must be integers!")
+            else:
+                # Move function when the values have been entered
+                threading.Thread(target=lambda: move_and_wait(self.mcm301obj, pos=[int(enter_x)*1000000,int(enter_y)*1000000])).start()
+                # # Clear the entries
+                # enter_x.delete(0, tk.END)
+                # enter_y.delete(0, tk.END)
+        elif type == "Z":
+            enter_z = self.pos_entry_z.get().strip()
+
+            if not enter_x.isdigit() or not enter_y.isdigit():
+                messagebox.showerror("Input Error", "Both fields must be integers!")
+            else:
+                # Move function when the values have been entered
+                threading.Thread(target=lambda: move_and_wait(self.mcm301obj, pos=[int(enter_x)*1000000,int(enter_y)*1000000])).start()
     
     def set_angle_from_entry(self, event):
         # Get the angle from the entry box

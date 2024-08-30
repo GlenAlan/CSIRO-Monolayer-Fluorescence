@@ -84,7 +84,7 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 ### Next Week  
 - [X] CAMERA SETTINGS (basic)
 - [X] Make move and wait (& relative) generalised for z axis too.
-- [X] Add pixel -> location function
+- [ ] Add pixel -> location function
 - [ ] Fix Monolayer class image color conversion in quality functions
 - [X] Add move specific distance function
 - [X] Added a goto monolayers
@@ -97,8 +97,8 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 - [ ] Stage accuracy
 - [ ] ~~Save file system~~
 GUI
-- [ ] Wheel for camera rotation calibration
-- [ ] Z position slider for focus calibration
+- [X] Wheel for camera rotation calibration
+- [X] Z position slider for focus calibration
 - [X] Enterables for position change on main tab
 - [ ] Integration with main algorithm
 - [ ] Pop up cat image
@@ -109,8 +109,17 @@ GUI
 ### Glen
 This week I tested my speed upgrade changes as well as generalized some of the functions within the code. The camera parameters can now be set via the software. I had issues with modifying the camera rotation as I had to change one of the classes given by the example documentation. However this didn't prove too difficult. I managed to create a function which converts the coordinates of the monolayers in pixels back to the stage coordinates, allowing us to find particular monolayers after we have processed them. This will probably need more refining next week. We also modified some of the functions such that we could run them without threads by removing the waits. This could be generalised into one function which is a next week job. I did encounter an error where the stage would occasionally move to unexpected locations on the opposite side of where it was currently processing. I think this is fixed (hopefully) otherwise it may be an issue with the stage boundaries. It would be good to keep an eye on this. Many other minor fixes and cleaning of the code. Next week will be focusing on making these last few changes and working on the lab report. From there we can finally merge our code and begin on the next lot of goals and improve the usability.
 
+### Lachlan
+This week was focused on usability of the GUI. I added several features to the main and calibration tab. These features included a usable wheel for rotating the image from the sensor, buttons for moving around in the live image and changing the focus, and enterables for changing the position of the live image in nm. The rotation of the live image from the sensor produced an actual rotate image on the window. This was different to what was expected. I expected the rotation to physically rotate the camera sensor and give a different angle of the image but instead it just rotated the digital copy of the image already captured. I was able to implement these changes with the use of the bind() command in Tkinter, which I learned to use for the buttons and enterables.
+
+One issue we had was a really laggy window, regardless of whether the stage and thus positions were being changed. The issue was two versions of the live image under the LiveViewCanvas() class was being produced by the code at the same time, but only one was ever being displayed (two images for two different tabs). The way we overcame this was checking which tab was in current use and only displaying the image on that tab.
+
 ### Next Week
 - [ ] Lab Report Drafting
+- [ ] Camera settings (advanced)
+- [ ] Have mm, um, and nm option for position on main tab
+- [ ] Create better framing for calibration tab
+- [ ] Check: Test enterables for X,Y,Z
 - [X] Camera settings (advanced)
 - [ ] Autofocus
 - [ ] Check stage coords function (more precise)
