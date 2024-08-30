@@ -84,9 +84,10 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 ### Next Week  
 - [X] CAMERA SETTINGS (basic)
 - [X] Make move and wait (& relative) generalised for z axis too.
-- [ ] Add pixel -> location function
+- [X] Add pixel -> location function
 - [ ] Fix Monolayer class image color conversion in quality functions
 - [X] Add move specific distance function
+- [X] Added a goto monolayers
 - [ ] Add Autofocus
 - [X] Speed up
 - [ ] Table of statistics
@@ -109,3 +110,4 @@ GUI
 ### Next Week
 - [ ] Lab Report Drafting
 - [ ] Camera settings (advanced)
+- [ ] Progress bar

@@ -6,8 +6,8 @@ except ImportError:
     configure_path = None
 
 from thorlabs_tsi_sdk.tl_camera import *
-from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
-from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
+# from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
+# from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
 
 from MCM301_COMMAND_LIB import *
 import time
@@ -32,7 +32,7 @@ import os
 confirmation_bits = (2147484928, 2147484930, 2147483904)
 monolayer_crop_padding = 10
 
-camera_dims = [2448, 2048] # This is updated dynamically later
+# camera_dims = [2448, 2048] # This is updated dynamically later
 camera_properties = {"gain": 255, "exposure": 150000}
 nm_per_px = 171.6
 image_overlap = 0.05
@@ -279,6 +279,8 @@ def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
 
     # Convert the blended result back to a NumPy array
     canvas[y_start:y_end, x_start:x_end] = canvas_region.cpu().numpy().astype(canvas.dtype)
+
+    display_canvas_queue.put(scale_down_canvas(canvas, 10))
 
     return canvas
 
@@ -539,7 +541,7 @@ def post_processing(canvas, start, contrast=2, threshold=100):
     t1 = time.time()
     print("Post processing...")
 
-    downscale_factor = 5
+    downscale_factor = 4
     monolayers = []
 
     # Create a downsampled version of the canvas for post-processing
@@ -547,7 +549,7 @@ def post_processing(canvas, start, contrast=2, threshold=100):
 
     # post_image = cv2.blur(post_image, (5, 5)) # Optional pre grayscale blur (downscaling already blurs)
     # Our image is in BGRA format so to convert it to greyscale with a bias for red and a bias against green and blue, we use the following formula:
-    post_image = 1 * post_image[:, :, 2] - 0.75 * post_image[:, :, 1] - 0.25 * post_image[:, :, 0]
+    post_image = 1 * post_image[:, :, 2] - 1.0 * post_image[:, :, 1] - 0.0 * post_image[:, :, 0]
     # Normalize the image to 0-255
     post_image = np.clip(post_image, 0, 255)
     # Convert to uint8
@@ -609,8 +611,10 @@ def post_processing(canvas, start, contrast=2, threshold=100):
     save_image(contour_image, "Images/contour.png", 5)
     print("Saved!")
 
-    # Sort monolayers by area
+    # Sort monolayers by area removing any which are too small
+    monolayers = [layer for layer in monolayers if layer.area_um >= downscale_factor]
     monolayers.sort(key=operator.attrgetter('area'))
+
     for i, layer in enumerate(monolayers):
         print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}      Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
         cv2.imwrite(f"Monolayers/{i+1}.png", layer.image)
@@ -651,7 +655,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
 
         ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
-        r = random.randint(-4, 0)
+        r = random.randint(-12, 4)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
@@ -700,6 +704,50 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
     print("Waiting for image processing to complete...")
     frame_queue.put(None)
 
+current_image_on_canvas = None
+
+def update_display():
+    """
+    Polls the display_canvas_queue for the latest canvas and updates the Tkinter canvas widget.
+    """
+    global current_image_on_canvas
+
+
+    try:
+        # Get the latest canvas from the queue without blocking
+        latest_canvas = display_canvas_queue.get_nowait()
+
+
+        # Convert the NumPy array (canvas) to a PIL Image
+        image = Image.fromarray(latest_canvas)
+
+
+        # Convert the PIL Image to an ImageTk object
+        tk_image = ImageTk.PhotoImage(image)
+
+
+        # Update the Tkinter canvas widget with the new image
+        if current_image_on_canvas is None:
+            # If this is the first image, create an image item on the canvas
+            current_image_on_canvas = display.create_image(0, 0, anchor=tk.NW, image=tk_image)
+        else:
+            # If the image already exists, update the existing image
+            display.itemconfig(current_image_on_canvas, image=tk_image)
+
+
+        # Keep a reference to the image to prevent garbage collection
+        display.image = tk_image
+
+
+    except queue.Empty:
+        # If the queue is empty, simply pass
+        pass
+
+
+    # Schedule the next update
+    root.after(100, update_display)
+
+
 
    
 """ Main
@@ -716,8 +764,12 @@ if __name__ == "__main__":
             print("Generating app...")
             root = tk.Tk()
             root.title(camera.name)
-            image_acquisition_thread = ImageAcquisitionThread(camera, rotation_angle=90)
-            camera_widget = LiveViewCanvas(parent=root, image_queue=image_acquisition_thread.get_output_queue())      
+            image_acquisition_thread = ImageAcquisitionThread(camera, rotation_angle=270)
+            camera_widget = LiveViewCanvas(parent=root, image_queue=image_acquisition_thread.get_output_queue())     
+
+            display = tk.Canvas(root, width=700, height=700)
+            display.pack()
+            root.after(100, update_display)
        
             print("Setting camera parameters...")
 
@@ -737,8 +789,7 @@ if __name__ == "__main__":
             image_queue = image_acquisition_thread.get_output_queue()
 
             frame_queue = queue.Queue()
-
-            
+            display_canvas_queue = queue.Queue()
 
             mcm301obj = stage_setup()
             start, end = get_scan_area(mcm301obj)
