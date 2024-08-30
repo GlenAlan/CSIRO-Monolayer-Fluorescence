@@ -17,6 +17,7 @@ from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
 
 import tkinter as tk
 from tkinter import ttk
+from tkinter import messagebox
 from PIL import Image, ImageTk, ImageDraw
 import typing
 import threading
@@ -236,27 +237,37 @@ class GUI:
 
     def create_control_buttons(self):
         # List of button names, positions, and other arrays used in the tk buttons and labels
-        btn_pos_nav = [
-            (5000000,5000000),
-            (1000500,1000500)
-        ]
-        btn_names = [
-            f"Move to {btn_pos_nav[0]}",
-            f"Move to {btn_pos_nav[1]}",
-            "Zoom in \'some amount\'",
-            "Zoom out \'some amount\'",
-        ]
-        btn_positions = [[0, 0], [0, 1], [1, 0], [1, 1]]
+        # btn_names = [
+        #     f"Move to {btn_pos_nav[0]}",
+        #     f"Move to {btn_pos_nav[1]}",
+        #     "Zoom in \'some amount\'",
+        #     "Zoom out \'some amount\'",
+        # ]
+        # btn_positions = [[0, 0], [0, 1], [1, 0], [1, 1]]
         self.pos_names = [
             "Pos X",
             "Pos Y",
             "Focus Z"
         ]
 
+        # Label for position enter
+        self.enter_pos = tk.Label(self.main_frame_text)
+        self.enter_pos.pack(pady=10)
+
+        # Create an entry widget in main tab 
+        self.pos_entry_x = tk.Entry(self.main_frame_text)
+        self.pos_entry_x.pack(pady=10)
+        self.pos_entry_y = tk.Entry(self.main_frame_text)
+        self.pos_entry_y.pack(pady=10)
+
+        # Bind the Enter key to the entry widget
+        self.pos_entry_x.bind('<Return>', self.submit_entries)
+        self.pos_entry_y.bind('<Return>', self.submit_entries)
+
         # Create buttons in main tab and place them in the grid - origin, set start, set end required
-        for i, btn_pos in enumerate(btn_pos_nav):
-            button = tk.Button(self.main_frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(self.mcm301obj, pos=btn_pos))
-            button.grid(row = btn_positions[i][0], column = btn_positions[i][1], padx=30, pady=30) # padding around the buttons, not the text in the buttons.
+        # for i, btn_pos in enumerate(btn_pos_nav):
+        #     button = tk.Button(self.main_frame_text, text = btn_names[i], width = 22, height = 2, relief = 'groove', command = lambda: move_and_wait(self.mcm301obj, pos=btn_pos))
+        #     button.grid(row = btn_positions[i][0], column = btn_positions[i][1], padx=30, pady=30) # padding around the buttons, not the text in the buttons.
         
         # Frame for positions in main
         self.main_frame_text_pos = tk.Frame(self.main_frame_text, padx = 25)
@@ -341,6 +352,23 @@ class GUI:
         self.angle_entry.delete(0, tk.END)
         self.angle_entry.insert(0, f"{angle:.2f}")
         print(f"Dummy Variable 2 updated to: {angle:.2f} degrees")
+    
+    # Function to handle the submit action
+    def submit_entries(self, event=None):
+        enter_x = self.pos_entry_x.get().strip()
+        enter_y = self.pos_entry_y.get().strip()
+
+        if not enter_x or not enter_y:
+            # Show an error message if either entry is empty
+            messagebox.showerror("Input Error", "Both fields are required!")
+        else:
+            # Process the input (here we just print it)
+            print(f"First Name: {first_name}")
+            print(f"Last Name: {last_name}")
+            move_and_wait(self.mcm301obj, pos=[enter_x,enter_y])
+            # Clear the entries
+            enter_x.delete(0, tk.END)
+            enter_y.delete(0, tk.END)
     
     def set_angle_from_entry(self, event):
         # Get the angle from the entry box
