@@ -107,6 +107,11 @@ GUI
 # 30/08/24
 
 
+### Lachlan
+This week was focused on usability of the GUI. I added several features to the main and calibration tab. These features included a usable wheel for rotating the image from the sensor, buttons for moving around in the live image and changing the focus, and enterables for changing the position of the live image in nm. The rotation of the live image from the sensor produced an actual rotate image on the window. This was different to what was expected. I expected the rotation to physically rotate the camera sensor and give a different angle of the image but instead it just rotated the digital copy of the image already captured. I was able to implement these changes with the use of the bind() command in Tkinter, which I learned to use for the buttons and enterables.
+
+One issue we had was a really laggy window, regardless of whether the stage and thus positions were being changed. The issue was two versions of the live image under the LiveViewCanvas() class was being produced by the code at the same time, but only one was ever being displayed (two images for two different tabs). The way we overcame this was checking which tab was in current use and only displaying the image on that tab.
+
 ### Next Week
 - [ ] Lab Report Drafting
 - [ ] Camera settings (advanced)
