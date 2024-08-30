@@ -91,11 +91,11 @@ On the GUI I created a canvas which displayed a live view of the image from the 
 - [ ] Add Autofocus
 - [X] Speed up
 - [ ] Table of statistics
-- [ ] Add a thread which is given the canvas and scales it down during image processing and displays it
-- [ ] Threaded final image save
+- [X] Add a thread which is given the canvas and scales it down during image processing and ~~displays it~~
+- [ ] ~~Threaded final image save~~
 - [X] Add a save and downscale image function
 - [ ] Stage accuracy
-- [ ] Save file system
+- [ ] ~~Save file system~~
 GUI
 - [ ] Wheel for camera rotation calibration
 - [ ] Z position slider for focus calibration
@@ -106,8 +106,18 @@ GUI
 
 # 30/08/24
 
+### Glen
+This week I tested my speed upgrade changes as well as generalized some of the functions within the code. The camera parameters can now be set via the software. I had issues with modifying the camera rotation as I had to change one of the classes given by the example documentation. However this didn't prove too difficult. I managed to create a function which converts the coordinates of the monolayers in pixels back to the stage coordinates, allowing us to find particular monolayers after we have processed them. This will probably need more refining next week. We also modified some of the functions such that we could run them without threads by removing the waits. This could be generalised into one function which is a next week job. I did encounter an error where the stage would occasionally move to unexpected locations on the opposite side of where it was currently processing. I think this is fixed (hopefully) otherwise it may be an issue with the stage boundaries. It would be good to keep an eye on this. Many other minor fixes and cleaning of the code. Next week will be focusing on making these last few changes and working on the lab report. From there we can finally merge our code and begin on the next lot of goals and improve the usability.
 
 ### Next Week
 - [ ] Lab Report Drafting
-- [ ] Camera settings (advanced)
+- [X] Camera settings (advanced)
+- [ ] Autofocus
+- [ ] Check stage coords function (more precise)
+- [ ] Generalise move_(and/not)_wait
 - [ ] Progress bar
+
+
+
+### Later
+- [ ] Save file so we can load previous results.
