@@ -321,18 +321,21 @@ class GUI:
 
     def update(self):
         while True:
-            # Positions - Live view of X,Y, and Z (focus) required
+            # Position Live view for main and calibration tabs
             for i, name in enumerate(self.pos_names):
+                # Position names X,Y,Z
                 label = tk.Label(self.main_frame_text_pos, text = name, padx = 10, pady = 5)
                 label.grid(row = i, column = 0)
                 label = tk.Label(self.calib_frame_text_pos, text = name, padx = 10, pady = 5)
                 label.grid(row = i, column = 0)
             for i in range(len(self.pos_names)):
+                # nm amounts
                 label = tk.Label(self.main_frame_text_pos, text = f'{get_pos(self.mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
                 label.grid(row = i, column = 1)
                 label = tk.Label(self.calib_frame_text_pos, text = f'{get_pos(self.mcm301obj, stages=(i+4,))[0]:.2e} nm', padx = 5, bg='lightgrey', width = 10)
                 label.grid(row = i, column = 1)
             for i in range(2):
+                # pixel amounts? could delete
                 label = tk.Label(self.main_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
                 label.grid(row = i, column = 2)
                 label = tk.Label(self.calib_frame_text_pos, text = 'pixels', padx = 5, bg='lightgrey', width = 10)
@@ -347,15 +350,20 @@ class GUI:
             "Focus Z"
         ]
 
-        # Label for position enter
+        # Label for position enterables
         self.enter_pos = tk.Label(self.main_frame_text)
         self.enter_pos.grid(row=0, pady=10)
+        self.enter_focus = tk.Label(self.calib_frame_text)
+        self.enter_focus.grid(row=0, pady=10)
 
         # Create an entry widget in main tab 
         self.pos_entry_x = tk.Entry(self.main_frame_text)
         self.pos_entry_x.grid(row=1, column=0, pady=10)
         self.pos_entry_y = tk.Entry(self.main_frame_text)
         self.pos_entry_y.grid(row=1, column=1, pady=10)
+        # Entry widget for focus in calibration tab
+        self.pos_entry_z = tk.Entry(self.calib_frame_text)
+        self.pos_entry_z.grid(row=2, column=4, pady=10) #to update row and column
 
         # Bind the Enter key to the entry widget
         self.pos_entry_x.bind('<Return>', self.submit_entries)
@@ -372,39 +380,29 @@ class GUI:
     
         ## Calibration frame controls
         # Z controls next to slider
-        calib_button_focus_label = tk.Label(self.calib_frame_text, text="Focus Slider (Dummy Variable 1):")
-        calib_button_focus_label.grid(row=0, column=2, pady=10)
+        calib_button_focus_label = tk.Label(self.calib_frame_text, text="Focus Slider")
+        calib_button_focus_label.grid(row=0, column=0, pady=10)
 
-        calib_btn_up = tk.Button(calib_button_focus_label, text="Up", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(dist/2)], stages=(5,)))
-        calib_btn_up.grid(row=0, column=1)
+        calib_btn_up = tk.Button(self.calib_frame_text, text="Up", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(dist/2)], stages=(5,)))
+        calib_btn_up.grid(row=1, column=1)
 
-        calib_btn_left = tk.Button(calib_button_focus_label, text="Left", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(-dist/2)], stages=(4,)))
-        calib_btn_left.grid(row=1, column=0)
+        calib_btn_left = tk.Button(self.calib_frame_text, text="Left", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(-dist/2)], stages=(4,)))
+        calib_btn_left.grid(row=2, column=0)
 
-        calib_btn_right = tk.Button(calib_button_focus_label, text="Right", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(dist/2)], stages=(4,)))
-        calib_btn_right.grid(row=1, column=2)
+        calib_btn_right = tk.Button(self.calib_frame_text, text="Right", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(dist/2)], stages=(4,)))
+        calib_btn_right.grid(row=2, column=2)
 
-        calib_btn_down = tk.Button(calib_button_focus_label, text="Down", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(-dist/2)], stages=(5,)))
-        calib_btn_down.grid(row=2, column=1)
+        calib_btn_down = tk.Button(self.calib_frame_text, text="Down", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(-dist/2)], stages=(5,)))
+        calib_btn_down.grid(row=3, column=1)
 
-        calib_btn_zoom_in = tk.Button(calib_button_focus_label, text="Zoom in", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(10000)], stages=(6,)))
-        calib_btn_zoom_in.grid(row=0, column=4)
+        calib_btn_zoom_in = tk.Button(self.calib_frame_text, text="Zoom in", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(10000)], stages=(6,)))
+        calib_btn_zoom_in.grid(row=1, column=4)
 
-        calib_btn_zoom_out = tk.Button(calib_button_focus_label, text="Zoom out", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(-10000)], stages=(6,)))
-        calib_btn_zoom_out.grid(row=2, column=4)
-
-    # def move(self, dx=0, dy=0):
-    #     self.region[0] += 50*dx
-    #     self.region[2] += 50*dx
-    #     self.region[1] += 50*dy
-    #     self.region[3] += 50*dy
-    #     move_and_wait_relative(self.mcm301obj, stages=6)
-    #     self.update_image()
+        calib_btn_zoom_out = tk.Button(self.calib_frame_text, text="Zoom out", command = lambda: move_no_wait_relative(self.mcm301obj, pos = [int(-10000)], stages=(6,)))
+        calib_btn_zoom_out.grid(row=3, column=4)
 
     def create_sliders(self):
-        # Calibration adjustment sliders. Currently there is a focus (z pos) slider. To include camera rotation wheel.
-        # Sliders do not have variable or command assigned to it yet.
-        # First slider needs z position function. Second slider needs camera rotation function.
+        # Calibration adjustment sliders. Currently there is a focus (z pos) slider. Camera rotation wheel is included elsewhere now.
 
         # Slider for focus (z position)
         slider_focus_label = ttk.Label(self.calib_frame_text, text="Focus Slider (Dummy Variable 1):")
