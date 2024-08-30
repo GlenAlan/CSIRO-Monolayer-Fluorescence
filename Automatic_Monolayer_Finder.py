@@ -5,7 +5,7 @@ try:
 except ImportError:
     configure_path = None
 
-from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame
+from thorlabs_tsi_sdk.tl_camera import *
 from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
 from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
 
@@ -32,10 +32,10 @@ import os
 confirmation_bits = (2147484928, 2147484930, 2147483904)
 monolayer_crop_padding = 10
 
-camera_dims = (2448, 2048)
+camera_properties = {"gain": 255, "exposure": 150000}
 nm_per_px = 171.6
 image_overlap = 0.05
-dist = int(min(camera_dims) * nm_per_px * (1-image_overlap))
+
 
 accel_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -536,7 +536,7 @@ def post_processing(canvas, contrast=2, threshold=100):
     t1 = time.time()
     print("Post processing...")
 
-    downscale_factor = 4
+    downscale_factor = 5
     monolayers = []
 
     # Create a downsampled version of the canvas for post-processing
@@ -633,12 +633,12 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             x (int): The x-coordinate in nanometers.
             y (int): The y-coordinate in nanometers.
         """
-        time.sleep(0.35)
+        time.sleep(2*camera_properties["exposure"]/1e6)
 
 
         ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
-        r = random.randint(-2, 4)
+        r = random.randint(-4, 4)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
@@ -707,8 +707,16 @@ if __name__ == "__main__":
             camera_widget = LiveViewCanvas(parent=root, image_queue=image_acquisition_thread.get_output_queue())      
        
             print("Setting camera parameters...")
+
             camera.frames_per_trigger_zero_for_unlimited = 0
             camera.arm(2)
+
+            camera.gain = camera_properties["gain"]
+            camera.exposure_time_us = camera_properties["exposure"]
+
+            camera_dims = (camera.image_width_pixels, camera.image_height_pixels)
+            dist = int(min(camera_dims) * nm_per_px * (1-image_overlap))
+
             camera.issue_software_trigger()
 
             print("Starting image acquisition thread...")
