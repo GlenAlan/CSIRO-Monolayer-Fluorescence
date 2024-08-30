@@ -363,10 +363,10 @@ class GUI:
             messagebox.showerror("Input Error", "Both fields are required!")
         else:
             # Move function when the values have been entered
-            move_and_wait(self.mcm301obj, pos=[enter_x,enter_y])
-            # Clear the entries
-            enter_x.delete(0, tk.END)
-            enter_y.delete(0, tk.END)
+            threading.Thread(target=lambda:move_and_wait(self.mcm301obj, pos=[int(enter_x),int(enter_y)])).start()
+            # # Clear the entries
+            # enter_x.delete(0, tk.END)
+            # enter_y.delete(0, tk.END)
     
     def set_angle_from_entry(self, event):
         # Get the angle from the entry box
