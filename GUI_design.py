@@ -161,8 +161,9 @@ class GUI:
         tab_main = ttk.Frame(notebook)
         notebook.add(tab_main, text="Main Tab")
 
-        # Flag to control image updates
-        self.update_active = False
+        # Flags to control image updates
+        self.update_active_tab1 = False
+        self.update_active_tab2 = False
 
         # Bind tab change event
         notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
@@ -173,9 +174,9 @@ class GUI:
         self.main_frame_text.pack()
 
         self.camera = camera
-        # Sources images from camera and places it on canvas
+        # Sources images from camera
+        # The images are placed on a Canvas later, depending on the current tab active, to reduce lag
         image_acquisition_thread = ImageAcquisitionThread(self.camera)
-        # self.camera_widget_main = LiveViewCanvas(parent=self.main_frame_image, image_queue=image_acquisition_thread.get_output_queue())
         self.vel = 50 # not sure what this does         
     
         # Camera parameters
@@ -202,9 +203,6 @@ class GUI:
         
         self.calib_frame_text_pos = tk.Frame(self.calib_frame_text, padx = 25)
         self.calib_frame_text_pos.grid(row=2 , sticky='w', pady = 30) #First two rows are taken up by buttons, this frame starts at row 2 of the text frame
-        
-        # Live image view in calibration tab
-        # self.camera_widget_calib = LiveViewCanvas(parent=self.calib_frame_image, image_queue=image_acquisition_thread.get_output_queue())
 
         # Results tab
         tab_results = ttk.Frame(notebook)
@@ -221,21 +219,46 @@ class GUI:
         self.create_360_wheel()
         
         self.update()
-    
+
     def on_tab_change(self, event):
         selected_tab = event.widget.index("current")
-        if selected_tab == 0:  # Assuming live view tab is the first tab
-            self.main_frame_image.delete("all")
-            self.calib_frame_image.delete("all")
-            self.camera_widget_main = LiveViewCanvas(parent=self.main_frame_image, image_queue=self.image_acquisition_thread.get_output_queue())
-        elif selected_tab == 1:  # Assuming live view tab is the first tab
-            self.main_frame_image.delete("all")
-            self.calib_frame_image.delete("all")
-            self.camera_widget_calib = LiveViewCanvas(parent=self.calib_frame_image, image_queue=self.image_acquisition_thread.get_output_queue())
+        if selected_tab == 0:  # Live View Tab 1
+            self.update_active_main = True
+            self.update_active_calib = False
+            self.update_image_main()
+        elif selected_tab == 1:  # Live View Tab 2
+            self.update_active_main = False
+            self.update_active_calib = True
+            self.update_image_calib()
+        else:
+            self.update_active_main = False
+            self.update_active_calib = False
+
+    def update_image_main(self):
+        if not self.update_active_main:
+            return
+
+        # Update the image on main frame
+        self.calib_frame_image.delete("all")
+        self.camera_widget_main = LiveViewCanvas(parent=self.main_frame_image, image_queue=self.image_acquisition_thread.get_output_queue())
+
+        # Schedule the next update for Tab 1
+        self.root.after(100, self.update_image_main)
+
+    def update_image_calib(self):
+        if not self.update_active_tab2:
+            return
+
+        # Update the image on calibration frame
+        self.calib_frame_image.delete("all")
+        self.camera_widget_calib = LiveViewCanvas(parent=self.calib_frame_image, image_queue=self.image_acquisition_thread.get_output_queue())
+
+        # Schedule the next update for Tab 2
+        self.root.after(100, self.update_image_calib)
 
     def update(self):
         threading.Thread(target=self.update_positions).start()
-        root.after(100, self.update)
+        self.root.after(100, self.update)
 
     def update_positions(self):
         # Positions - Live view of X,Y, and Z (focus) required
