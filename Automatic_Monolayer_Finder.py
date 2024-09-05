@@ -96,7 +96,7 @@ def stage_setup():
     return mcm301obj
 
 
-def move_and_wait(mcm301obj, pos, stages=(4, 5)):
+def move(mcm301obj, pos, stages=(4, 5), wait=False):
     """
     Moves the stage to a specified position and waits for the movement to complete.
 
@@ -120,16 +120,17 @@ def move_and_wait(mcm301obj, pos, stages=(4, 5)):
         # Move the stages to the required encoder position
         mcm301obj.move_absolute(stage, coord[0])
 
-    moving = True
-    while moving:
-        moving = False
-        for i, stage in enumerate(stages):
-            # Wait until the stages have finished moving by checking the status bits
-            bit = [0]
-            mcm301obj.get_mot_status(stage, [0], bit)
-            if bit[0] not in confirmation_bits:
-                moving = True
-            # print(bit[0])
+    if wait:
+        moving = True
+        while moving:
+            moving = False
+            for i, stage in enumerate(stages):
+                # Wait until the stages have finished moving by checking the status bits
+                bit = [0]
+                mcm301obj.get_mot_status(stage, [0], bit)
+                if bit[0] not in confirmation_bits:
+                    moving = True
+                # print(bit[0])
 
 
 
@@ -162,7 +163,7 @@ def get_pos(mcm301obj, stages=(4, 5, 6)):
     return pos
 
 
-def move_and_wait_relative(mcm301obj, pos=[0, 0], stages=(4, 5)):
+def move_relative(mcm301obj, pos=[0, 0], stages=(4, 5), wait=False):
     """
     Moves the stage to a specified position relative to the current position and waits for the movement to complete.
 
@@ -176,7 +177,7 @@ def move_and_wait_relative(mcm301obj, pos=[0, 0], stages=(4, 5)):
     until it confirms that the movement is complete.
     """
     pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))] 
-    move_and_wait(mcm301obj, pos, stages)
+    move(mcm301obj, pos, stages, wait)
 
 
 def image_to_stage(center_coords, start):
@@ -623,7 +624,7 @@ def post_processing(canvas, start, contrast=2, threshold=100):
         except ValueError:
             print("Please enter a valid monolayer number")
         if n in range(0, len(monolayers)):
-            move_and_wait(mcm301obj, image_to_stage(monolayers[n].position, start))
+            move(mcm301obj, image_to_stage(monolayers[n].position, start, wait=True))
         else:
             print("Please enter a valid monolayer number")
 
@@ -675,7 +676,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         while (direction == 1 and x < end[0]) or (direction == -1 and x > start[0]):
             capture_and_store_frame(x, y)
             x += dist * direction
-            move_and_wait(mcm301obj, (x, y))
+            move(mcm301obj, (x, y), wait=True)
         
         # Capture final frame at the line end
         capture_and_store_frame(x, y)
@@ -683,7 +684,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         return x
     
     # Start scanning
-    move_and_wait(mcm301obj, start)
+    move(mcm301obj, start, wait=True)
     x, y = start
     direction = 1
     
@@ -692,7 +693,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
         
         # Move to the next line
         y += dist
-        move_and_wait(mcm301obj, (x, y))
+        move(mcm301obj, (x, y), wait=True)
         
         # Reverse direction for the next line scan
         direction *= -1
