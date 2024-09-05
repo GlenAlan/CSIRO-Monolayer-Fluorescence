@@ -6,6 +6,7 @@ import queue
 import math
 import cv2  # OpenCV library for accessing the webcam
 import random
+import time
 
 from MCM301_COMMAND_LIB import *
 
@@ -93,22 +94,33 @@ def stage_setup():
     return mcm301obj
 
 
-def move_and_wait(mcm301obj, pos, stages=(4, 5)):
-    """Moves the stage to a specified position and waits for the movement to complete."""
+def move(mcm301obj, pos, stages=(4, 5), wait=True):
+    """
+    Moves the stage to a specified position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (tuple): The desired position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+        wait (bool): Whether to wait for the movement to complete before returning.
+   
+    The function converts the given nanometer position into encoder units that the stage controller can use,
+    then commands the stage to move to those positions. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
     print(f"Moving to {', '.join(str(p) for p in pos)}")
+
     for i, stage in enumerate(stages):
         coord = [0]
+
+        # Convert the positions from nanometers to encoder units
         mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
+
+        # Move the stages to the required encoder position
         mcm301obj.move_absolute(stage, coord[0])
 
-
-def move_no_wait(mcm301obj, pos, stages=(4, 5)):
-    """Moves the stage to a specified position without waiting for the movement to complete."""
-    print(f"Moving to {', '.join(str(p) for p in pos)}")
-    for i, stage in enumerate(stages):
-        coord = [0]
-        mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
-        mcm301obj.move_absolute(stage, coord[0])
+    if wait:
+        time.sleep(0.1)  # Small delay to ensure the stage starts moving
 
 
 def get_pos(mcm301obj, stages=(4, 5, 6)):
@@ -123,13 +135,22 @@ def get_pos(mcm301obj, stages=(4, 5, 6)):
     return pos
 
 
-def move_relative(mcm301obj, pos, stages, wait=True):
-    """Moves the stage to a specified position relative to the current position."""
-    pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))]
-    if wait:
-        move_and_wait(mcm301obj, pos, stages)
-    else:
-        move_no_wait(mcm301obj, pos, stages)
+def move_relative(mcm301obj, pos=[0, 0], stages=(4, 5), wait=True):
+    """
+    Moves the stage to a specified position relative to the current position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (list): The desired relative position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+        wait (bool): Whether to wait for the movement to complete before returning.
+   
+    The function retrieves the current position of the specified stage, adds the relative position to it,
+    and then moves the stage to the new position. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))] 
+    move(mcm301obj, pos, stages, wait)
 
 
 class ImageAcquisitionThread(threading.Thread):
@@ -197,7 +218,34 @@ class GUI:
         # Start Live Position Updates
         self.update_positions()
 
+        # Initialize Progress Bar and Status Label
+        self.init_progress_bar()
+
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def init_progress_bar(self):
+        """Initialize the progress bar and status label in the main tab."""
+        self.progress_value = tk.DoubleVar()
+        self.progress_status = tk.StringVar()
+        self.progress_status.set("Idle...")
+
+        # Progress bar widget
+        self.progress_bar = ttk.Progressbar(self.main_frame_text, orient="horizontal", length=200, mode="determinate", variable=self.progress_value)
+        self.progress_bar.grid(row=6, column=0, pady=10, sticky='ew', columnspan=2)
+
+        # Progress status label
+        self.progress_label = tk.Label(self.main_frame_text, textvariable=self.progress_status, bg=THEME_COLOR, fg=TEXT_COLOR, font=LABEL_FONT)
+        self.progress_label.grid(row=7, column=0, pady=5, sticky='w', columnspan=2)
+
+    def update_progress(self, value, status_text):
+        """Update the progress bar value and the status label."""
+        self.progress_value.set(value)
+        self.progress_status.set(status_text)
+
+    def reset_progress(self):
+        """Reset the progress bar and status label to initial values."""
+        self.progress_value.set(0)
+        self.progress_status.set("Idle...")
 
     def setup_notebook(self):
         """Setup Notebook and tabs for the GUI."""
@@ -430,11 +478,27 @@ class GUI:
             enter_x = self.pos_entry_x.get().strip()
             enter_y = self.pos_entry_y.get().strip()
             if self.validate_entries(enter_x, enter_y):
-                threading.Thread(target=lambda: move_and_wait(self.mcm301obj, pos=[int(enter_x) * 1000000, int(enter_y) * 1000000]), daemon=True).start()
+                threading.Thread(target=self.move_and_update_progress, args=([int(enter_x) * 1000000, int(enter_y) * 1000000],), daemon=True).start()
         elif type == "Z":
             enter_z = self.pos_entry_z.get().strip()
             if self.validate_entries(enter_z):
-                threading.Thread(target=lambda: move_and_wait(self.mcm301obj, pos=[int(enter_z) * 1000000], stages=(6,)), daemon=True).start()
+                threading.Thread(target=self.move_and_update_progress, args=([int(enter_z) * 1000000],), daemon=True).start()
+
+
+
+    ############################## TEST ONLY, REPLACE WITH ACTUAL UPDATES ##############################
+    def move_and_update_progress(self, pos, stages=(4, 5)):
+        """Move the stage to a position and update the progress bar during the operation."""
+        self.update_progress(0, "Moving stage...")
+        total_steps = 100
+        for i in range(total_steps):
+            move(self.mcm301obj, pos, stages)  # Simulating movement
+            progress = (i + 1) / total_steps * 100
+            self.update_progress(progress, f"Progress: {int(progress)}%")
+            self.root.update_idletasks()  # Ensure UI gets updated during the loop
+
+        self.update_progress(100, "Movement complete.")
+    #####################################################################################################
 
     def validate_entries(self, *entries):
         for entry in entries:
