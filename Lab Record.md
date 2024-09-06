@@ -119,12 +119,12 @@ One issue we had was a really laggy window, regardless of whether the stage and 
 - [ ] Camera settings (advanced)
 - [ ] Have mm, um, and nm option for position on main tab
 - [ ] Create better framing for calibration tab
-- [ ] Check: Test enterables for X,Y,Z
+- [X] Check: Test enterables for X,Y,Z
 - [X] Camera settings (advanced)
 - [ ] Autofocus
-- [ ] Check stage coords function (more precise)
-- [ ] Generalise move_(and/not)_wait
-- [ ] Progress bar
+- [X] Check stage coords function (more precise)
+- [X] Generalise move_(and/not)_wait
+- [X] Progress bar
 
 
 # 06/09/24
@@ -141,7 +141,21 @@ Welcome to the Automatic Monolayer Finder (AMF). This software scans across your
 
 Once this is done you can head to the Results & Analysis tab where you will find useful features of your monolayers such as area and ...
 
+### Lachlan & Glen
+Today we combined the algortihm and GUI code. The GUI got a rework to have a theme and layout. Added a progress bar, live stitched view, and results view. We ran into an error with the corners which was caused by the end values being larger than the start values, this was introduced when we make the corners defined through the GUI and was later fixed.  
+We also did mechanical exfoliation to obtain hour own samples and tested our code, identifying issues and fixing it. We didnt observe any monolayers on our samples. We need to focus on getting the exposure automated for next week.
 
+
+### Next Week
+- [ ] Focus Plane
+- [ ] Exposure and Gain
+- [ ] Workflow
+- [ ] Plain Camera Tab
+- [ ] Scale Bar
+- [ ] Monolayer Results List
+- [ ] Postprocessing calibration and view
+- [ ] Cat Picture
+- [ ] Read the filter setting
 
 ### Later
 - [ ] Save file so we can load previous results.
