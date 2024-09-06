@@ -1,8 +1,12 @@
 import tkinter as tk
 from tkinter import ttk, filedialog
+from tkinter import font as tkFont
 import random
 import math
 from PIL import Image, ImageDraw, ImageTk
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 '''
 Class for running tkinter root
@@ -15,6 +19,11 @@ class ImageDisplay:
         # Initialize the main window
         self.root = root
         self.root.title("Image display and rolling a die")
+        self.root.call('tk', 'scaling', 3)  # Adjust this scaling factor as needed
+
+        # # Set a global font for the entire app
+        # default_font = tkFont.nametofont("TkDefaultFont")
+        # default_font.configure(size=24)  # Set font size here
 
         # Create a Notebook (tab container)
         notebook = ttk.Notebook(self.root)
@@ -35,6 +44,10 @@ class ImageDisplay:
         # Create the third tab
         self.tab3 = ttk.Frame(notebook)
         notebook.add(self.tab3, text="Tab 3")
+
+        # Create the fourth tab
+        self.tab4 = ttk.Frame(notebook)
+        notebook.add(self.tab4, text="Tab 4")
 
         # Add content to the second tab
         label2 = tk.Label(self.tab2, text="This is Tab 2", font=("Arial", 16))
@@ -68,6 +81,11 @@ class ImageDisplay:
         # Dummy variables
         self.dummy_var1 = tk.DoubleVar(value=0)
         self.dummy_var2 = tk.DoubleVar(value=0)
+
+        # Data for histogram
+        self.x = np.random.randn(1000)
+
+        self.plot_histogram(self.tab4)
 
         self.update_image()
 
@@ -189,6 +207,26 @@ class ImageDisplay:
         self.angle_entry.pack(pady=10)
         self.angle_entry.insert(0, "0")
         self.angle_entry.bind("<Return>", self.set_angle_from_entry)
+
+    def plot_histogram(self, parent_frame):
+        # Create a figure and axis for the histogram
+        fig, ax = plt.subplots(figsize=(5,4), dpi=100)
+
+        # Plot the histogram for data in x
+        ax.hist(self.x, bins=30, color='blue', edgecolor='black')
+
+        # Add labels and title
+        ax.set_title('Histogram of Data', fontsize=16)
+        ax.set_xlabel('Value', fontsize=14)
+        ax.set_ylabel('Frequency', fontsize=14)
+
+        # Set font size for tick labels
+        ax.tick_params(axis='both', which='major', labelsize=12)
+
+        # Embed the plot into Tkinter
+        canvas = FigureCanvasTkAgg(fig, master=parent_frame)  # A canvas widget for matplotlib
+        canvas.draw()
+        canvas.get_tk_widget().grid(row=0, column=0)
 
     def draw_anti_aliased_wheel(self):
         # Draw the circle for the wheel with anti-aliasing
