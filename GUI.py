@@ -273,7 +273,7 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
             future = executor.submit(process_image, item, canvas, start, lock)
             futures.append(future)
 
-            scaled_canvas = scale_down_canvas(canvas, 10)
+            scaled_canvas = scale_down_canvas(canvas, 16)
 
             stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
             stitched_view_canvas.update_image_display(stitched_image)
@@ -285,18 +285,17 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
     # End timing after all processing is complete
     t2 = time.time()
     print("Image stitching complete")
-    gui.update_progress(92, "Image stitching...")
     print(f"Time taken: {t2 - t1:.2f} seconds")
 
     print("Saving final image...")
     #cv2.imwrite("Images/final.png", canvas)
     #cv2.imwrite("Images/final_compressed.png", canvas, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
-    save_image(canvas, "Images/final_downsampled.png", 10)
+    save_image(canvas, "Images/final_scan.png", 10)
 
     print("Save complete")
 
-    scaled_canvas = scale_down_canvas(canvas, 10)
+    scaled_canvas = scale_down_canvas(canvas, 16)
 
     stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
     stitched_view_canvas.update_image_display(stitched_image)
@@ -334,9 +333,9 @@ def post_processing(gui, canvas, start, contrast=2, threshold=100):
     print(f"Time taken: {t2 - t1:.2f} seconds")
 
 
-    print("Saving post processed image...")
-    save_image(post_image, "Images/processed.png")
-    print("Saved!")
+    # print("Saving post processed image...")
+    # save_image(post_image, "Images/processed.png")
+    # print("Saved!")
 
     # Create a copy of the canvas for contour drawing (this is slow but necessary if canvas is to be used again in future)
     contour_image = canvas.copy()
@@ -377,8 +376,10 @@ def post_processing(gui, canvas, start, contrast=2, threshold=100):
     # Display the final image with contours
     gui.update_progress(97, "Saving final images...")
     print("Saving image with monolayers...")
-    save_image(contour_image, "Images/contour.png", 5)
+    save_image(contour_image, "Images/highlighted_monolayers.png", 5)
     print("Saved!")
+
+    gui.display_image_on_results_tab(Image.fromarray(cv2.cvtColor(scale_down_canvas(contour_image, 10), cv2.COLOR_BGRA2RGBA)))
 
     # Sort monolayers by area removing any which are too small
     monolayers = [layer for layer in monolayers if layer.area_um >= downscale_factor]
@@ -430,7 +431,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
 
         ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
-        r = random.randint(-4, 4)
+        r = random.randint(-4, 0)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
@@ -479,6 +480,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
 
     print("\nImage capture complete!")
     print("Waiting for image processing to complete...")
+    gui.update_progress(92, "Image stitching...")
     frame_queue.put(None)
 
 class Monolayer:
@@ -823,6 +825,23 @@ class GUI:
         self.calib_frame_text = tk.Frame(self.tabs["calibration"], bg=config.THEME_COLOR)
         self.calib_frame_text.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
 
+        # Results Tab Layout
+        self.results_frame_image = tk.Canvas(self.tabs["results"], bg=config.THEME_COLOR, highlightthickness=0)
+        self.results_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
+
+        # Load and display the image
+        self.display_image_on_results_tab(Image.open("placeholder.webp"))
+
+        # A text or additional widget can be added on the right side if necessary
+        self.results_frame_text = tk.Frame(self.tabs["results"], bg=config.THEME_COLOR)
+        self.results_frame_text.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
+
+        # Configure the grid for the results tab
+        self.tabs["results"].grid_columnconfigure(0, weight=1)
+        self.tabs["results"].grid_columnconfigure(1, weight=1) 
+        self.tabs["results"].grid_rowconfigure(0, weight=1) 
+
+
         # Responsive Layout Configuration
         for tab in self.tabs.values():
             tab.grid_columnconfigure(0, weight=3)
@@ -834,6 +853,51 @@ class GUI:
 
         self.main_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
         self.calib_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
+
+    def display_image_on_results_tab(self, image):
+        """
+        Load and display an image in the left half of the results tab. The image is scaled to fit the Canvas.
+        """
+        if not isinstance(image, Image.Image):
+            print(f"Invalid image type: {type(image)}. Expected PIL.Image.")
+            return
+
+        def update_image_on_resize(event=None):
+            # Get the current width and height of the canvas
+            canvas_width = self.results_frame_image.winfo_width() if event is None else event.width
+            canvas_height = self.results_frame_image.winfo_height() if event is None else event.height
+
+            # Check if the image has a valid aspect ratio and dimensions
+            if image.width == 0 or image.height == 0:
+                print("Invalid image dimensions.")
+                return
+
+            # Maintain aspect ratio while resizing
+            aspect_ratio = image.width / image.height
+
+            if canvas_width / aspect_ratio < canvas_height:
+                new_width = canvas_width
+                new_height = int(new_width / aspect_ratio)
+            else:
+                new_height = canvas_height
+                new_width = int(new_height * aspect_ratio)
+
+            # Resize the image while maintaining the aspect ratio
+            resized_image = image.resize((new_width, new_height), Image.LANCZOS)
+
+            # Update the image in the canvas
+            self._resized_image = ImageTk.PhotoImage(resized_image)
+
+            # Clear the previous image and display the new one
+            self.results_frame_image.delete("all")
+            self.results_frame_image.create_image(0, 0, anchor='nw', image=self._resized_image)
+
+        # Bind resizing event to dynamically update the image size
+        self.results_frame_image.bind("<Configure>", update_image_on_resize)
+
+        # Call once initially to display the image
+        self.root.after(0, update_image_on_resize)
+
 
 
     def init_position_labels(self):
@@ -926,8 +990,8 @@ class GUI:
             ("Left", (8, 0), lambda: move_relative(self.mcm301obj, pos=[int(-config.DIST / 2)], stages=(4,), wait=False)),
             ("Right", (8, 2), lambda: move_relative(self.mcm301obj, pos=[int(config.DIST / 2)], stages=(4,), wait=False)),
             ("Down", (9, 1), lambda: move_relative(self.mcm301obj, pos=[int(-config.DIST / 2)], stages=(5,), wait=False)),
-            ("Zoom in", (7, 3), lambda: move_relative(self.mcm301obj, pos=[10000], stages=(6,), wait=False)),
-            ("Zoom out", (9, 3), lambda: move_relative(self.mcm301obj, pos=[-10000], stages=(6,), wait=False))
+            ("Focus +", (7, 3), lambda: move_relative(self.mcm301obj, pos=[10000], stages=(6,), wait=False)),
+            ("Focus -", (9, 3), lambda: move_relative(self.mcm301obj, pos=[-10000], stages=(6,), wait=False))
         ]
 
         for text, (row, col), cmd in calib_controls:
@@ -1061,8 +1125,14 @@ class GUI:
 
 def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_view_canvas):
 
+    x_1, y_1 = start
+    x_2, y_2 = end
+    start = [min(x_1, x_2), min(y_1, y_2)]
+    end = [max(x_1, x_2), max(y_1, y_2)]
+    
     # Disable buttons in the main tab
     gui.toggle_buttons(gui.main_frame_text ,'disabled')
+    gui.display_image_on_results_tab(Image.open("placeholder.webp"))
 
     # Start stitching thread
     stitching_thread = threading.Thread(target=stitch_and_display_images, args=(gui, frame_queue, start, end, stitched_view_canvas))

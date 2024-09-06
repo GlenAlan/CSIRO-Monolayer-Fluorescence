@@ -6,6 +6,7 @@ import typing
 import threading
 import queue
 import operator
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 import tkinter as tk
@@ -86,6 +87,8 @@ def save_image(image, filename, scale_down_factor=1):
     Returns:
         None
     """
+    file, ending = filename.split(".")
+    filename = file + datetime.now().strftime("_%Y-%m-%d_%H%M%S") + "." + ending
     cv2.imwrite(filename, scale_down_canvas(image, scale_down_factor))
     print(format_size(os.path.getsize(filename)))
 
@@ -141,6 +144,8 @@ def stage_setup():
    
     print("Homing complete")
     print("Stage setup complete\n")
+
+    move(mcm301obj, (1e6, 1e6), wait=False)
 
     return mcm301obj
 
