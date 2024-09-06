@@ -1,25 +1,39 @@
+import os
+import time
+import random
+import math
+import typing
+import threading
+import queue
+import operator
+from concurrent.futures import ThreadPoolExecutor
+
+import tkinter as tk
+from tkinter import ttk, messagebox
+from PIL import Image, ImageTk, ImageDraw
+
+import cv2  # OpenCV library for accessing the webcam
+import numpy as np
+from skimage.measure import shannon_entropy
+import torch
+
+from MCM301_COMMAND_LIB import *
+import config
+
+# Thorlabs TSI SDK imports
+from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame
+from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
+from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
+
+# Windows-specific setup
 try:
-    # if on Windows, use the provided setup script to add the DLLs folder to the PATH
     from windows_setup import configure_path
     configure_path()
 except ImportError:
     configure_path = None
 
-from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame
-from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
-from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
+# These bits indicate that the stage is no longer moving.
 
-from MCM301_COMMAND_LIB import *
-import time
-import random
-
-import tkinter as tk
-from PIL import Image, ImageTk
-import typing
-import threading
-import queue
-import os
-import cv2
 
 
 def format_size(size_in_bytes):
@@ -74,6 +88,173 @@ def save_image(image, filename, scale_down_factor=1):
     """
     cv2.imwrite(filename, scale_down_canvas(image, scale_down_factor))
     print(format_size(os.path.getsize(filename)))
+
+
+def stage_setup():
+    """
+    Initializes and sets up the stage for movement. It first creates an instance of the MCM301 object
+    and checks for connected devices. If a device is found, it connects to the first one in the list.
+    The function then checks if the device is open and if not, it closes the connection and exits the script.
+
+    After successfully opening the device, it homes the stages (in this case, stages 4 and 5).
+    Homing is the process of moving the stages to a reference position. The function waits for the
+    stages to complete homing by checking the status bits until they indicate that the stage is no longer moving.
+
+    Returns:
+        mcm301obj (MCM301): The initialized MCM301 object ready for further stage operations.
+    """
+    mcm301obj = MCM301()
+
+    # List connected devices
+    devs = MCM301.list_devices()
+    print(devs)
+    if len(devs) <= 0:
+        print('There is no devices connected')
+        exit()
+
+    # Connect to the first available device
+    device_info = devs[0]
+    sn = device_info[0]
+    print("connect ", sn)
+    hdl = mcm301obj.open(sn, 115200, 3)
+    if hdl < 0:
+        print("open ", sn, " failed. hdl is ", hdl)
+        exit()
+
+    # Ensure the device is successfully opened
+    if mcm301obj.is_open(sn) == 0:
+        print("MCM301IsOpen failed")
+        mcm301obj.close()
+        exit()
+
+    # Home the stages
+    for stage_num in (4,5):
+        print(f"Homing stage {stage_num}")
+        mcm301obj.home(stage_num)
+
+    # Wait for homing to complete by checking the status bits
+    bits_x, bits_y = [0], [0]
+    while bits_x[0] not in config.CONFIRMATION_BITS or bits_y[0] not in config.CONFIRMATION_BITS:
+        mcm301obj.get_mot_status(4, [0], bits_x)
+        mcm301obj.get_mot_status(5, [0], bits_y)
+        # print(f"x: {bits_x}, y:{bits_y}")
+   
+    print("Homing complete")
+    print("Stage setup complete\n")
+
+    return mcm301obj
+
+
+
+def move(mcm301obj, pos, stages=(4, 5), wait=True):
+    """
+    Moves the stage to a specified position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (tuple): The desired position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+        wait (bool): Whether to wait for the movement to complete before returning.
+   
+    The function converts the given nanometer position into encoder units that the stage controller can use,
+    then commands the stage to move to those positions. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    print(f"Moving to {', '.join(str(p) for p in pos)}")
+
+    for i, stage in enumerate(stages):
+        coord = [0]
+
+        # Convert the positions from nanometers to encoder units
+        mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
+
+        # Move the stages to the required encoder position
+        mcm301obj.move_absolute(stage, coord[0])
+
+    if wait:
+        moving = True
+        while moving:
+            moving = False
+            for i, stage in enumerate(stages):
+                # Wait until the stages have finished moving by checking the status bits
+                bit = [0]
+                mcm301obj.get_mot_status(stage, [0], bit)
+                if bit[0] not in config.CONFIRMATION_BITS:
+                    moving = True
+                # print(bit[0])
+
+
+
+def get_pos(mcm301obj, stages=(4, 5, 6)):
+    """
+    Retrieves the current position of the specified stages.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        stages (list): A list of stage numbers for which the positions are to be retrieved.
+   
+    Returns:
+        pos (list): A list of positions corresponding to the specified stages,
+                    in nanometers.
+   
+    The function queries the current encoder value for each specified stage,
+    converts that value into nanometers, and returns the positions as a list.
+    """
+    pos = []
+    for stage in stages:
+        encoder_val, nm = [0], [0]
+         # Get the current encoder value for the stage
+        mcm301obj.get_mot_status(stage, encoder_val, [0])
+
+        # Convert the encoder value to nanometers
+        mcm301obj.convert_encoder_to_nm(stage, encoder_val[0], nm)
+
+        # Append the position to the list
+        pos.append(nm[0])
+    return pos
+
+
+def move_relative(mcm301obj, pos=[0, 0], stages=(4, 5), wait=True):
+    """
+    Moves the stage to a specified position relative to the current position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (list): The desired relative position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+        wait (bool): Whether to wait for the movement to complete before returning.
+   
+    The function retrieves the current position of the specified stage, adds the relative position to it,
+    and then moves the stage to the new position. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))] 
+    move(mcm301obj, pos, stages, wait)
+
+
+
+def get_scan_area(mcm301obj):
+    """
+    Retrieves the start and end positions for the scan algorithm.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+   
+    Returns:
+        start, end: Lists of positions corresponding to the start and end position,
+                    in nanometers.
+   
+    The function queries the current encoder value for each specified stage,
+    converts that value into nanometers, and returns the positions as a list.
+    """
+    input("Please move the stage to one corner of the sample. Press ENTER when complete")
+    x_1, y_1 = get_pos(mcm301obj, (4, 5))
+    input("Please move the stage to the opposite corner of the sample. Press ENTER when complete")
+    x_2, y_2 = get_pos(mcm301obj, (4, 5))
+    start = [min(x_1, x_2), min(y_1, y_2)]
+    end = [max(x_1, x_2), max(y_1, y_2)]
+    print()
+    return start, end
 
 
 class LiveViewCanvas(tk.Canvas):
@@ -209,3 +390,4 @@ class ImageAcquisitionThread(threading.Thread):
         if self._is_color:
             self._mono_to_color_processor.dispose()
             self._mono_to_color_sdk.dispose()
+
