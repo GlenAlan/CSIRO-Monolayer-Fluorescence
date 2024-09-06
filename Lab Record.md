@@ -127,6 +127,21 @@ One issue we had was a really laggy window, regardless of whether the stage and 
 - [ ] Progress bar
 
 
+# 06/09/24
+
+### Instructions for GUI
+Hello! Are you tired of manually searching for monolayers, spending minutes on those spinny wheels just to find a speck of fluorescing hair strand? Look no further, we have the solution for you!
+
+Welcome to the Automatic Monolayer Finder (AMF). This software scans across your desired area of detection, taking photos and stitching them together to create a map of all your monolayers. The main function is found in the Main Control tab. Please follow the instructions below to use the AMF:
+1. Go to the Calibration tab and enter the desired focus.
+2. Go to the Main Control tab and move to your starting corner either manually or by entering the position in nm and click 'Corner 1'.
+3. Do the same for the ending corner and click 'Corner 2'.
+4. Click 'Begin Search'. A live view of the progress will be shown.
+5. You're done!
+
+Once this is done you can head to the Results & Analysis tab where you will find useful features of your monolayers such as area and ...
+
+
 
 ### Later
 - [ ] Save file so we can load previous results.
