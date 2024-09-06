@@ -1,15 +1,9 @@
-try:
-    # if on Windows, use the provided setup script to add the DLLs folder to the PATH
-    from windows_setup import configure_path
-    configure_path()
-except ImportError:
-    configure_path = None
+# from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
+# from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
 
 from MCM301_COMMAND_LIB import *
 import time
 import random
-
-# from custom_definitions import *
 
 import tkinter as tk
 from PIL import Image, ImageTk
@@ -25,45 +19,61 @@ import torch
 import os
 
 # These bits indicate that the stage is no longer moving.
-confirmation_bits = (2147484928, 2147484930)
+confirmation_bits = (2147484928, 2147484930, 2147483904)
 monolayer_crop_padding = 10
 
-camera_dims = (2448, 2048)
+camera_dims = [2448, 2048] # This is updated dynamically later
+camera_properties = {"gain": 255, "exposure": 150000}
 nm_per_px = 171.6
 image_overlap = 0.05
-dist = int(min(camera_dims) * nm_per_px * (1-image_overlap))
+
 
 accel_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def stage_setup():
-    mcm301obj = MCM301()
-    return mcm301obj
+def save_image(image, filename, scale_down_factor=1):
+    """
+    Saves an image to a file after optionally scaling it down.
 
+    Args:
+        image (numpy.ndarray): The image to be saved.
+        filename (str): The name of the file to save the image to.
+        scale_down_factor (int, optional): The factor by which to scale down the image before saving. 
+                                           Defaults to 1 (no scaling).
 
-def move_and_wait(mcm301obj, pos, stage=(4, 5)):
-    x_nm, y_nm, = pos
-    print(f"Moving to {x_nm}, {y_nm}")
-
-
-def get_pos(mcm301obj, stages=[4, 5, 6]):
-    pos = []
-    return pos
-
-
-def get_scan_area(mcm301obj):
-    start = 0e6, 0e6
-    end = 2e6, 2e6
-    return start, end
-
+    Returns:
+        None
+    """
+    cv2.imwrite(filename, scale_down_canvas(image, scale_down_factor))
+    print(format_size(os.path.getsize(filename)))
 
 def format_size(size_in_bytes):
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size_in_bytes < 1024:
-                return f"{size_in_bytes:.2f} {unit}"
-            size_in_bytes /= 1024
+    """
+    Converts a file size in bytes to a human-readable string format.
+
+    Args:
+        size_in_bytes (int): The size of the file in bytes.
+
+    Returns:
+        str: The formatted size string, including the appropriate unit (B, KB, MB, GB, TB).
+    """
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size_in_bytes < 1024:
+            return f"{size_in_bytes:.2f} {unit}"
+        size_in_bytes /= 1024
 
 def scale_down_canvas(canvas, scale_factor):
+    """
+    Scales down an image canvas by a specified factor using interpolation.
+
+    Args:
+        canvas (numpy.ndarray): The original image canvas to be scaled down.
+        scale_factor (int): The factor by which to scale down the image. 
+                            A value of 1 means no scaling (returns the original image).
+
+    Returns:
+        numpy.ndarray: The scaled-down image canvas.
+    """
     if scale_factor == 1:
         return canvas
     else:
@@ -74,9 +84,120 @@ def scale_down_canvas(canvas, scale_factor):
         )
         return downsampled_canvas
 
-def save_image(image, filename, scale_down_factor=1):
-    cv2.imwrite(filename, scale_down_canvas(image, scale_down_factor))
-    print(format_size(os.path.getsize(filename)))
+
+def stage_setup():
+    """
+    Initializes and sets up the stage for movement. It first creates an instance of the MCM301 object
+    and checks for connected devices. If a device is found, it connects to the first one in the list.
+    The function then checks if the device is open and if not, it closes the connection and exits the script.
+
+    After successfully opening the device, it homes the stages (in this case, stages 4 and 5).
+    Homing is the process of moving the stages to a reference position. The function waits for the
+    stages to complete homing by checking the status bits until they indicate that the stage is no longer moving.
+
+    Returns:
+        mcm301obj (MCM301): The initialized MCM301 object ready for further stage operations.
+    """
+    mcm301obj = MCM301()
+
+    return mcm301obj
+
+
+def move_and_wait(mcm301obj, pos, stages=(4, 5)):
+    """
+    Moves the stage to a specified position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (tuple): The desired position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+   
+    The function converts the given nanometer position into encoder units that the stage controller can use,
+    then commands the stage to move to those positions. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    print(f"Moving to {', '.join(str(p) for p in pos)}")
+
+    for i, stage in enumerate(stages):
+        coord = [0]
+
+        # Convert the positions from nanometers to encoder units
+        mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
+
+        # Move the stages to the required encoder position
+        mcm301obj.move_absolute(stage, coord[0])
+
+
+
+
+def get_pos(mcm301obj, stages=(4, 5, 6)):
+    """
+    Retrieves the current position of the specified stages.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        stages (list): A list of stage numbers for which the positions are to be retrieved.
+   
+    Returns:
+        pos (list): A list of positions corresponding to the specified stages,
+                    in nanometers.
+   
+    The function queries the current encoder value for each specified stage,
+    converts that value into nanometers, and returns the positions as a list.
+    """
+    pos = []
+    for stage in stages:
+        encoder_val, nm = [0], [0]
+         # Get the current encoder value for the stage
+        mcm301obj.get_mot_status(stage, encoder_val, [0])
+
+        # Convert the encoder value to nanometers
+        mcm301obj.convert_encoder_to_nm(stage, encoder_val[0], nm)
+
+        # Append the position to the list
+        pos.append(nm[0])
+    return pos
+
+
+def move_and_wait_relative(mcm301obj, pos=[0, 0], stages=(4, 5)):
+    """
+    Moves the stage to a specified position relative to the current position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (list): The desired relative position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+   
+    The function retrieves the current position of the specified stage, adds the relative position to it,
+    and then moves the stage to the new position. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))] 
+    move_and_wait(mcm301obj, pos, stages)
+
+
+def image_to_stage(center_coords, start):
+    center_coords_raw = (int((center_coords[0] - camera_dims[0])* nm_per_px + start[0]), int((center_coords[1] - camera_dims[1])* nm_per_px + start[1]))
+    return center_coords_raw
+
+
+def get_scan_area(mcm301obj):
+    """
+    Retrieves the start and end positions for the scan algorithm.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+   
+    Returns:
+        start, end: Lists of positions corresponding to the start and end position,
+                    in nanometers.
+   
+    The function queries the current encoder value for each specified stage,
+    converts that value into nanometers, and returns the positions as a list.
+    """
+    start = (1e6, 1e6)
+    end = (6e6, 6e6)
+    return start, end
 
 
 def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
@@ -182,9 +303,6 @@ def process_image(item, canvas, start, lock):
         int((center_coords_raw[1] - start[1]) / nm_per_px + camera_dims[1])   # Y coordinate
     )
 
-    # Rotate the image 90 degrees clockwise
-    image_np = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
-
     # Add the image to the canvas within a lock to ensure thread-safe operation
     with lock:
         add_image_to_canvas(canvas, image_np, center_coords)
@@ -251,7 +369,7 @@ def stitch_and_display_images(frame_queue, start, end):
 
     print("Save complete")
 
-    post_processing(canvas)
+    post_processing(canvas, start)
 
 class Monolayer:
     def __init__(self, contour, image, pos):
@@ -407,10 +525,9 @@ class Monolayer:
 
         return median_minus_mean
         
-        
 
 
-def post_processing(canvas, contrast=2, threshold=100):
+def post_processing(canvas, start, contrast=2, threshold=100):
     t1 = time.time()
     print("Post processing...")
 
@@ -422,7 +539,7 @@ def post_processing(canvas, contrast=2, threshold=100):
 
     # post_image = cv2.blur(post_image, (5, 5)) # Optional pre grayscale blur (downscaling already blurs)
     # Our image is in BGRA format so to convert it to greyscale with a bias for red and a bias against green and blue, we use the following formula:
-    post_image = 1 * post_image[:, :, 2] - 0.75 * post_image[:, :, 1] - 0.25 * post_image[:, :, 0]
+    post_image = 1 * post_image[:, :, 2] - 1.0 * post_image[:, :, 1] - 0.0 * post_image[:, :, 0]
     # Normalize the image to 0-255
     post_image = np.clip(post_image, 0, 255)
     # Convert to uint8
@@ -445,7 +562,7 @@ def post_processing(canvas, contrast=2, threshold=100):
     print("Saved!")
 
     # Create a copy of the canvas for contour drawing (this is slow but necessary if canvas is to be used again in future)
-    contour_image = canvas  # .copy()
+    contour_image = canvas.copy()
 
     print("Locating Monolayers...")
 
@@ -484,11 +601,23 @@ def post_processing(canvas, contrast=2, threshold=100):
     save_image(contour_image, "Images/contour.png", 5)
     print("Saved!")
 
-    # Sort monolayers by area
+    # Sort monolayers by area removing any which are too small
+    monolayers = [layer for layer in monolayers if layer.area_um >= downscale_factor]
     monolayers.sort(key=operator.attrgetter('area'))
+
     for i, layer in enumerate(monolayers):
         print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}      Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
         cv2.imwrite(f"Monolayers/{i+1}.png", layer.image)
+
+    while True:
+        try:
+            n = int(input("Go To Monolayer: "))-1
+        except ValueError:
+            print("Please enter a valid monolayer number")
+        if n in range(0, len(monolayers)):
+            move_and_wait(mcm301obj, image_to_stage(monolayers[n].position, start))
+        else:
+            print("Please enter a valid monolayer number")
 
 
 def alg(mcm301obj, image_queue, frame_queue, start, end):
@@ -511,7 +640,7 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
             x (int): The x-coordinate in nanometers.
             y (int): The y-coordinate in nanometers.
         """
-        time.sleep(0.1)
+        time.sleep(camera_properties["exposure"]/5e6)
 
 
         ################################################################################################################################### Change this back
@@ -563,18 +692,27 @@ def alg(mcm301obj, image_queue, frame_queue, start, end):
     print("Waiting for image processing to complete...")
     frame_queue.put(None)
 
+
    
 """ Main
 When run as a script, a simple Tkinter app is created with just a LiveViewCanvas widget.
 """
 if __name__ == "__main__":
-    print(f"Using device: {accel_device}")
+    print(f'Using device: {accel_device} for image processing.')
+    
+
     # create generic Tk App with just a LiveViewCanvas widget
     print("Generating app...")
     root = tk.Tk()
+    root.title("Monolayer Analysis")
+
+    print("Setting camera parameters...")
+
+    dist = int(min(camera_dims) * nm_per_px * (1-image_overlap))
 
 
     print("Starting image acquisition thread...")
+    image_queue = []
 
     frame_queue = queue.Queue()
 
@@ -584,13 +722,12 @@ if __name__ == "__main__":
     stitching_thread = threading.Thread(target=stitch_and_display_images, args=(frame_queue, start, end))
     stitching_thread.start()
 
-    alg_thread = threading.Thread(target=alg, args=(mcm301obj, None, frame_queue, start, end))
+    alg_thread = threading.Thread(target=alg, args=(mcm301obj, image_queue, frame_queue, start, end))
     alg_thread.start()
 
     root.mainloop()
 
     print("Waiting for image acquisition thread to finish...")
-
     # stitching_thread.stop() # This needs a stop function
     stitching_thread.join()
 
