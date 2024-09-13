@@ -161,22 +161,30 @@ We also did mechanical exfoliation to obtain hour own samples and tested our cod
 - [ ] Save file so we can load previous results.
 
 
+# 13/09/24
+
+### Lachlan & Glen
+
+Today we spent most of the day working on the lab report. We focused on the relavence (/introduction) section and the methods. We also added images of our first real monolayer detection test on an actual sample. We moved and rewrote sections of our report in LaTex (Overleaf) and included references and contents etc.
+  
+We also performed our first test of the software on a real sample. This detection went quite well apart from needing to adjust values in the code to account for a different lens since we have not yet included this in the GUI. The code sucessfully scaned the section of the sample and identified several monolayers incluidng he main one of interest.
 
 
+### Remainder of the placement
 
-- Add cat in a Santa hat
-- Add camera parameter adjustment (done on backend, needs GUI)
-- Add a focus routine (planar)
-- List the located monolayers and stats and add an option to take you to a specific one (done on backend, needs GUI)
-- Different lens calibration
-- Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
-- Allow zoom on the results image (and click to go to location)
-- Add more instructions to the GUI and redo layout as needed
-- Refine quality parameters
-- Add an intuitive click to move on the live view image
-- Tidy up our directory and to make it neater
-- Add a scale to the results (&live?) image
-- List the connected devices in the calibration tab (done on backend, needs GUI)
-- Add a save and load for settings etc.
-- Add automatic focus adjustment (every frame)
--Give the window a logo and package it into a .exe if possible
+- [ ] Add cat in a Santa hat
+- [ ] Add camera parameter adjustment (done on backend, needs GUI)
+- [ ] Add a focus routine (planar)
+- [ ] List the located monolayers and stats and add an option to take you to a specific one (done on backend, needs GUI)
+- [ ] Different lens calibration
+- [ ] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
+- [ ] Allow zoom on the results image (and click to go to location)
+- [ ] Add more instructions to the GUI and redo layout as needed
+- [ ] Refine quality parameters
+- [ ] Add an intuitive click to move on the live view image
+- [ ] Tidy up our directory and to make it neater
+- [ ] Add a scale to the results (&live?) image
+- [ ] List the connected devices in the calibration tab (done on backend, needs GUI)
+- [ ] Add a save and load for settings etc.
+- [ ] Add automatic focus adjustment (every frame)
+- [ ] Give the window a logo and package it into a .exe if possible
