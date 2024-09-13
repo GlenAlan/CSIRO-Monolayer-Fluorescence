@@ -159,3 +159,24 @@ We also did mechanical exfoliation to obtain hour own samples and tested our cod
 
 ### Later
 - [ ] Save file so we can load previous results.
+
+
+
+
+
+- Add cat in a Santa hat
+- Add camera parameter adjustment (done on backend, needs GUI)
+- Add a focus routine (planar)
+- List the located monolayers and stats and add an option to take you to a specific one (done on backend, needs GUI)
+- Different lens calibration
+- Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
+- Allow zoom on the results image (and click to go to location)
+- Add more instructions to the GUI and redo layout as needed
+- Refine quality parameters
+- Add an intuitive click to move on the live view image
+- Tidy up our directory and to make it neater
+- Add a scale to the results (&live?) image
+- List the connected devices in the calibration tab (done on backend, needs GUI)
+- Add a save and load for settings etc.
+- Add automatic focus adjustment (every frame)
+-Give the window a logo and package it into a .exe if possible
