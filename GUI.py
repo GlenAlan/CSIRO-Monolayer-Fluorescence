@@ -986,10 +986,10 @@ class GUI:
 
         # Create navigation buttons for calibration tab
         calib_controls = [
-            ("Up", (7, 1), lambda: move_relative(self.mcm301obj, pos=[int(config.DIST / 2)], stages=(5,), wait=False)),
+            ("Up", (7, 1), lambda: move_relative(self.mcm301obj, pos=[int(-config.DIST / 2)], stages=(5,), wait=False)),
             ("Left", (8, 0), lambda: move_relative(self.mcm301obj, pos=[int(-config.DIST / 2)], stages=(4,), wait=False)),
             ("Right", (8, 2), lambda: move_relative(self.mcm301obj, pos=[int(config.DIST / 2)], stages=(4,), wait=False)),
-            ("Down", (9, 1), lambda: move_relative(self.mcm301obj, pos=[int(-config.DIST / 2)], stages=(5,), wait=False)),
+            ("Down", (9, 1), lambda: move_relative(self.mcm301obj, pos=[int(config.DIST / 2)], stages=(5,), wait=False)),
             ("Focus +", (7, 3), lambda: move_relative(self.mcm301obj, pos=[10000], stages=(6,), wait=False)),
             ("Focus -", (9, 3), lambda: move_relative(self.mcm301obj, pos=[-10000], stages=(6,), wait=False))
         ]
