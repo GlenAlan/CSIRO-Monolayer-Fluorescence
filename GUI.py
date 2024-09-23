@@ -47,7 +47,7 @@ class LiveViewCanvas(tk.Canvas):
         self.image_queue = image_queue
         self._image_width = 0
         self._image_height = 0
-        self.is_active = False  # Initialize attribute to control image updates
+        self.is_active = True  # Initialize attribute to control image updates
         self.bind("<Configure>", self.on_resize)  # Bind resizing event
         self._display_image()
 
@@ -409,7 +409,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
 
         ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
-        r = random.randint(-4, 0)
+        r = random.randint(-4, 4)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
@@ -617,7 +617,6 @@ class Monolayer:
 
 class GUI:
     def __init__(self, root, camera):
-        """Initialize the GUI and set up all components."""
         # Initialize the main window
         self.root = root
         self.root.title('Camera Control Interface')
@@ -630,29 +629,47 @@ class GUI:
 
         self.frame_queue = queue.Queue()
 
+        self.image_references = []
+
         # Initialize the stage controller
         self.stage_controller = stage_setup(home=False)
 
-        # Setup notebook and tabs
+        # Create main frame with two columns
+        self.main_frame = tk.Frame(self.root, bg=config.THEME_COLOR)
+        self.main_frame.pack(expand=True, fill="both")
+
+        # Left frame: Live camera view and position labels
+        self.left_frame = tk.Frame(self.main_frame, bg=config.THEME_COLOR)
+        self.left_frame.grid(row=0, column=0, sticky="nsew")
+
+        # Right frame: Notebook with tabs
+        self.right_frame = tk.Frame(self.main_frame, bg=config.THEME_COLOR)
+        self.right_frame.grid(row=0, column=1, sticky="nsew")
+
+        # Configure grid weights
+        self.main_frame.grid_columnconfigure(0, weight=1)
+        self.main_frame.grid_columnconfigure(1, weight=2)
+        self.main_frame.grid_rowconfigure(0, weight=1)
+
+        # Setup notebook and tabs in the right frame
         self.setup_notebook()
 
-        # Create stitched view canvas
-        self.stitched_view_canvas = LiveViewCanvas(self.tabs["main"], queue.Queue())
-        self.stitched_view_canvas.grid(row=1, column=0, padx=10, pady=10, sticky='nsew')
+        # Live camera view in the left frame
+        self.live_view_canvas = LiveViewCanvas(self.left_frame, self.image_acquisition_thread._image_queue)
+        self.live_view_canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # Flags to control image updates
-        self.update_active_main = False
-        self.update_active_calibration = False
+        # Initialize live position labels in the left frame
+        self.position_frame = tk.Frame(self.left_frame, bg=config.THEME_COLOR)
+        self.position_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10)
 
-        # Create UI Elements
-        self.create_control_buttons()
-        self.create_rotation_wheel()
-
-        # Initialize live position labels
         self.init_position_labels()
 
         # Start live position updates
         self.update_positions()
+
+        # Create control buttons and other UI elements
+        self.create_control_buttons()
+        self.create_rotation_wheel()
 
         # Initialize progress bar and status label
         self.init_progress_bar()
@@ -691,7 +708,7 @@ class GUI:
         """Initialize the buttons in the main tab."""
         # Frame for the buttons
         scan_area_frame = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR)
-        scan_area_frame.grid(row=5, column=0, pady=10, sticky='w', columnspan=2)
+        scan_area_frame.grid(row=0, column=0, pady=10, sticky='w', columnspan=2)
 
         # Corner 1 Button
         corner1_button = tk.Button(
@@ -723,7 +740,7 @@ class GUI:
             fg=config.TEXT_COLOR,
             font=config.LABEL_FONT
         )
-        self.corner1_position_label.grid(row=6, column=0, pady=5, sticky='w', columnspan=2)
+        self.corner1_position_label.grid(row=1, column=0, pady=5, sticky='w', columnspan=2)
 
         self.corner2_position_label = tk.Label(
             self.main_frame_controls,
@@ -732,7 +749,7 @@ class GUI:
             fg=config.TEXT_COLOR,
             font=config.LABEL_FONT
         )
-        self.corner2_position_label.grid(row=7, column=0, pady=5, sticky='w', columnspan=2)
+        self.corner2_position_label.grid(row=2, column=0, pady=5, sticky='w', columnspan=2)
 
         # Begin Search Button
         begin_search_button = tk.Button(
@@ -803,7 +820,7 @@ class GUI:
 
     def setup_notebook(self):
         """Setup Notebook and tabs for the GUI."""
-        notebook = ttk.Notebook(self.root)
+        notebook = ttk.Notebook(self.right_frame)
         notebook.pack(expand=True, fill="both")
 
         self.tabs = {
@@ -840,50 +857,34 @@ class GUI:
         )
         style.configure("TProgressbar", troughcolor=config.THEME_COLOR, background=config.HIGHLIGHT_COLOR, thickness=20)
 
-        # Bind tab change event
-        notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
-
         # Main Control Tab Layout
-        self.main_frame_image = LiveViewCanvas(self.tabs["main"], self.image_acquisition_thread._image_queue)
-        self.main_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
-
         self.main_frame_controls = tk.Frame(self.tabs["main"], bg=config.THEME_COLOR)
         self.main_frame_controls.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
 
-        # Calibration Tab Layout
-        self.calibration_frame_image = LiveViewCanvas(self.tabs["calibration"], self.image_acquisition_thread._image_queue)
-        self.calibration_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
+        # Create stitched view canvas
+        self.stitched_view_canvas = LiveViewCanvas(self.tabs["main"], queue.Queue())
+        self.stitched_view_canvas.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
 
+        # Configure grid in 'main' tab
+        self.tabs["main"].grid_columnconfigure(0, weight=1)
+        self.tabs["main"].grid_columnconfigure(1, weight=1)
+        self.tabs["main"].grid_rowconfigure(0, weight=1)
+
+        # Calibration Tab Layout
         self.calibration_frame_controls = tk.Frame(self.tabs["calibration"], bg=config.THEME_COLOR)
-        self.calibration_frame_controls.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
+        self.calibration_frame_controls.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Results Tab Layout
         self.results_frame_image = tk.Canvas(self.tabs["results"], bg=config.THEME_COLOR, highlightthickness=0)
-        self.results_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
+        self.results_frame_image.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Load and display the image
         self.display_results_tab(Image.open("placeholder.webp"))
 
         # Additional widgets for the results tab
         self.results_frame_controls = tk.Frame(self.tabs["results"], bg=config.THEME_COLOR)
-        self.results_frame_controls.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
+        self.results_frame_controls.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Configure the grid for the results tab
-        self.tabs["results"].grid_columnconfigure(0, weight=1)
-        self.tabs["results"].grid_columnconfigure(1, weight=1)
-        self.tabs["results"].grid_rowconfigure(0, weight=1)
-
-        # Responsive Layout Configuration
-        for tab in self.tabs.values():
-            tab.grid_columnconfigure(0, weight=3)
-            tab.grid_columnconfigure(1, weight=1)
-            tab.grid_rowconfigure(0, weight=1)
-
-        notebook.grid_columnconfigure(0, weight=1)
-        notebook.grid_rowconfigure(0, weight=1)
-
-        self.main_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
-        self.calibration_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
 
     def display_results_tab(self, image, monolayers=None):
         """
@@ -898,7 +899,6 @@ class GUI:
         MIN_WIDTH = 400  # Set your minimum width here
         MIN_HEIGHT = 400  # Set your minimum height here
 
-        # Update the image in the left canvas
         def update_image_on_resize(event=None):
             canvas_width = max(self.results_frame_image.winfo_width(), MIN_WIDTH)
             canvas_height = max(self.results_frame_image.winfo_height(), MIN_HEIGHT)
@@ -944,37 +944,93 @@ class GUI:
 
             # Define columns
             columns = ('Area (um^2)', 'Centre', 'Entropy', 'TV Norm', 'Intensity Variance', 'CNR', 'Skewness', 'Index')
-            tree = ttk.Treeview(self.results_frame_controls, columns=columns, show='tree headings')
-            tree.heading('#0', text='Image')
+            visible_rows = 4  # Increased number of visible rows for taller Treeview
+
+            # Create a frame to hold the Treeview and scrollbar
+            tree_frame = tk.Frame(self.results_frame_controls, bg=config.THEME_COLOR)
+            tree_frame.grid(row=0, column=0, sticky='nsew')
+
+            # Set a fixed height for the frame
+            fixed_height = 750  # Increased height to make Treeview taller
+            tree_frame.config(height=fixed_height)
+            tree_frame.grid_propagate(False)  # Prevent the frame from resizing based on its content
+
+            # Configure the Treeview style for increased row height and custom colors
+            style = ttk.Style()
+
+            # Define a unique style name for the Treeview
+            tree_style = "Custom.Treeview"
+
+            # Configure the style
+            style.configure(tree_style,
+                            background=config.THEME_COLOR,  # Background color of the Treeview
+                            foreground=config.TEXT_COLOR,  # Text color
+                            rowheight=110,  # Row height to accommodate 100px images plus padding
+                            fieldbackground=config.THEME_COLOR)  # Background color of fields
+
+            # Configure the headings
+            style.configure(f"{tree_style}.Heading",
+                            background=config.BUTTON_COLOR,  # Heading background
+                            foreground=config.TEXT_COLOR,  # Heading text color
+                            font=config.BUTTON_FONT  # Heading font
+            )
+
+            # Configure the selected item appearance
+            style.map(tree_style,
+                    background=[('selected', '#693900')],  # Selection background color
+                    foreground=[('selected', config.TEXT_COLOR)])  # Selection text color
+
+            # Create the Treeview with a fixed height and custom style
+            tree = ttk.Treeview(
+                tree_frame,
+                columns=columns,
+                show='tree headings',
+                height=visible_rows,  # Set the number of visible rows
+                style=tree_style  # Apply the custom style
+            )
 
             # Setup column headings
-            for col in columns[:-1]:
-                tree.heading(col, text=col)
+            tree.heading('#0', text='Image')  # Renamed for clarity
+            tree.heading('Area (um^2)', text='Area (um^2)')
+            tree.heading('Centre', text='Centre')
+            tree.heading('Entropy', text='Entropy')
+            tree.heading('TV Norm', text='TV Norm')
+            tree.heading('Intensity Variance', text='Intensity Variance')
+            tree.heading('CNR', text='CNR')
+            tree.heading('Skewness', text='Skewness')
+            tree.heading('Index', text='Index')
 
-            tree.column('#0', width=160, anchor='center')
-            for col in columns[:-1]:
-                tree.column(col, width=100, anchor='center')
-            tree.column('Index', width=0, stretch=False)
+            # Define column widths and alignment
+            tree.column('#0', width=120, anchor='center')  # Increased width to 120
+            tree.column('Area (um^2)', width=100, anchor='center')
+            tree.column('Centre', width=100, anchor='center')
+            tree.column('Entropy', width=100, anchor='center')
+            tree.column('TV Norm', width=100, anchor='center')
+            tree.column('Intensity Variance', width=150, anchor='center')
+            tree.column('CNR', width=100, anchor='center')
+            tree.column('Skewness', width=100, anchor='center')
+            tree.column('Index', width=0, stretch=False)  # Hide the index column
 
-            # Style for row height
-            style = ttk.Style()
-            style.configure("Treeview", rowheight=150)
-
-            # Scrollbar
-            vsb = ttk.Scrollbar(self.results_frame_controls, orient="vertical", command=tree.yview)
+            # Create a vertical scrollbar
+            vsb = ttk.Scrollbar(
+                tree_frame,
+                orient="vertical",
+                command=tree.yview
+            )
             tree.configure(yscrollcommand=vsb.set)
 
-            # Image references
-            self.image_references = []
+            # Pack the Treeview and scrollbar inside the frame
+            tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            vsb.pack(side=tk.RIGHT, fill=tk.Y)
 
-            # Insert data into treeview
+            # Insert data into Treeview
             for index, monolayer in enumerate(monolayers):
                 img_array = monolayer.image
                 if img_array.shape[2] == 4:
                     img = Image.fromarray(cv2.cvtColor(img_array, cv2.COLOR_BGRA2RGBA))
                 else:
                     img = Image.fromarray(cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB))
-                img = img.resize((140, 140), Image.LANCZOS)
+                img = img.resize((100, 100), Image.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
                 self.image_references.append(photo)
 
@@ -989,32 +1045,28 @@ class GUI:
                     index
                 ))
 
-            # Selection event
+            # Bind selection event
             def on_item_selected(event):
-                selected_item = tree.selection()[0]
+                selected_items = tree.selection()
+                if not selected_items:
+                    return
+                selected_item = selected_items[0]
                 monolayer_index = int(tree.item(selected_item, 'values')[7])
                 monolayer = monolayers[monolayer_index]
                 move(self.stage_controller, image_to_stage(monolayer.position, config.start_pos), wait=False)
                 print(f"Selected monolayer at index {monolayer_index}, position {monolayer.position}")
 
             tree.bind('<<TreeviewSelect>>', on_item_selected)
-            tree.grid(row=0, column=0, sticky='nsew')
-            vsb.grid(row=0, column=1, sticky='ns')
-
-            self.results_frame_controls.grid_rowconfigure(0, weight=1)
-            self.results_frame_controls.grid_columnconfigure(0, weight=1)
 
 
     def init_position_labels(self):
         """Initialize position labels for live updates."""
         self.position_names = ["Pos X", "Pos Y", "Focus Z"]
-        self.position_labels_main = []
-        self.position_labels_calibration = []
+        self.position_labels = []
 
         for i, name in enumerate(self.position_names):
-            # Main tab labels
-            label_main = tk.Label(
-                self.main_frame_controls,
+            label = tk.Label(
+                self.position_frame,
                 text=name,
                 padx=10,
                 pady=5,
@@ -1022,9 +1074,9 @@ class GUI:
                 fg=config.TEXT_COLOR,
                 font=config.LABEL_FONT
             )
-            label_main.grid(row=i, column=0, sticky='w')
-            pos_label_main = tk.Label(
-                self.main_frame_controls,
+            label.grid(row=i, column=0, sticky='w')
+            pos_label = tk.Label(
+                self.position_frame,
                 text="0.00 nm",
                 padx=5,
                 bg=config.BUTTON_COLOR,
@@ -1032,61 +1084,19 @@ class GUI:
                 width=15,
                 font=config.LABEL_FONT
             )
-            pos_label_main.grid(row=i, column=1, sticky='w')
-            self.position_labels_main.append(pos_label_main)
+            pos_label.grid(row=i, column=1, sticky='w')
+            self.position_labels.append(pos_label)
 
-            # Calibration tab labels
-            label_calibration = tk.Label(
-                self.calibration_frame_controls,
-                text=name,
-                padx=10,
-                pady=5,
-                bg=config.THEME_COLOR,
-                fg=config.TEXT_COLOR,
-                font=config.LABEL_FONT
-            )
-            label_calibration.grid(row=i, column=0, sticky='w', padx=(10, 5), pady=(5, 5))
-            pos_label_calibration = tk.Label(
-                self.calibration_frame_controls,
-                text="0.00 nm",
-                padx=5,
-                bg=config.BUTTON_COLOR,
-                fg=config.TEXT_COLOR,
-                width=15,
-                font=config.LABEL_FONT
-            )
-            pos_label_calibration.grid(row=i, column=1, sticky='w', padx=(5, 10), pady=(5, 5))
-            self.position_labels_calibration.append(pos_label_calibration)
 
     def update_positions(self):
         """Update the positions displayed in the GUI."""
         positions = get_pos(self.stage_controller, stages=(4, 5, 6))
-        for i, pos_label in enumerate(self.position_labels_main):
-            pos_label.config(text=f"{positions[i]:.2e} nm")
-
-        for i, pos_label in enumerate(self.position_labels_calibration):
+        for i, pos_label in enumerate(self.position_labels):
             pos_label.config(text=f"{positions[i]:.2e} nm")
 
         # Schedule the next update
         self.root.after(config.POSITION_UPDATE_INTERVAL, self.update_positions)
 
-    def on_tab_change(self, event):
-        """Handle tab change events to activate/deactivate live view."""
-        selected_tab = event.widget.index("current")
-        if selected_tab == 0:  # Main Tab
-            self.update_active_main = True
-            self.update_active_calibration = False
-            self.main_frame_image.set_active(True)
-            self.calibration_frame_image.set_active(False)
-        elif selected_tab == 1:  # Calibration Tab
-            self.update_active_main = False
-            self.update_active_calibration = True
-            self.main_frame_image.set_active(False)
-            self.calibration_frame_image.set_active(True)
-        else:
-            self.update_active_main = False
-            self.update_active_calibration = False
-            self.stop_image_updates()
 
     def stop_image_updates(self):
         """Stop image updates when not on the main or calibration tabs."""
@@ -1384,6 +1394,7 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     # Disable buttons in the main tab
     gui.toggle_buttons(gui.main_frame_controls ,'disabled')
     gui.display_results_tab(Image.open("placeholder.webp"))
+    gui.image_references = []
 
     # Start stitching thread
     stitching_thread = threading.Thread(target=stitch_and_display_images, args=(gui, frame_queue, start, end, stitched_view_canvas))

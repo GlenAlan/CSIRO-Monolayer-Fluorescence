@@ -175,7 +175,7 @@ We also performed our first test of the software on a real sample. This detectio
 - [ ] Add cat in a Santa hat
 - [ ] Add camera parameter adjustment (done on backend, needs GUI)
 - [ ] Add a focus routine (planar)
-- [ ] List the located monolayers and stats and add an option to take you to a specific one (done on backend, needs GUI)
+- [X] List the located monolayers and stats and add an option to take you to a specific one (done on backend, needs GUI)
 - [ ] Different lens calibration
 - [ ] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
 - [ ] Allow zoom on the results image (and click to go to location)
