@@ -7,6 +7,9 @@ import typing
 import threading
 import queue
 import operator
+from matplotlib.backends.backend_tkagg import (
+    FigureCanvasTkAgg, NavigationToolbar2Tk)
+import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor
 
 import tkinter as tk
@@ -792,7 +795,7 @@ class GUI:
         config.start_pos = [min(x_1, x_2), min(y_1, y_2)]
         config.end_pos = [max(x_1, x_2), max(y_1, y_2)]
 
-    def toggle_buttons(self, widget, state: str):
+    def toggle_buttons(self, widget, state: str, exclude=[]):
         """
         Enable or disable all buttons in the main tab, including nested children.
 
@@ -803,9 +806,10 @@ class GUI:
         def recursive_toggle(w):
             """Recursively toggle buttons in the widget and its children."""
             for child in w.winfo_children():
-                if isinstance(child, tk.Button):
-                    child.config(state=state)
-                recursive_toggle(child)
+                if child not in exclude:
+                    if isinstance(child, tk.Button):
+                        child.config(state=state)
+                    recursive_toggle(child)
         recursive_toggle(widget)
 
     def update_progress(self, value, status_text):
@@ -827,13 +831,13 @@ class GUI:
             "main": ttk.Frame(notebook, style='TFrame'),
             "calibration": ttk.Frame(notebook, style='TFrame'),
             "results": ttk.Frame(notebook, style='TFrame'),
-            "devices": ttk.Frame(notebook, style='TFrame')
+            "plots": ttk.Frame(notebook, style='TFrame')
         }
 
         notebook.add(self.tabs["main"], text="Main Control")
         notebook.add(self.tabs["calibration"], text="Calibration")
         notebook.add(self.tabs["results"], text="Results & Analysis")
-        notebook.add(self.tabs["devices"], text="Devices")
+        notebook.add(self.tabs["plots"], text="Plots")
 
         # Apply styles
         style = ttk.Style()
@@ -878,8 +882,12 @@ class GUI:
         self.results_frame_image = tk.Canvas(self.tabs["results"], bg=config.THEME_COLOR, highlightthickness=0)
         self.results_frame_image.pack(fill="both", expand=True, padx=10, pady=10)
 
+        # Results Tab Layout
+        self.plots_frame = tk.Canvas(self.tabs["plots"], bg=config.THEME_COLOR, highlightthickness=0)
+        self.plots_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
         # Load and display the image
-        self.display_results_tab(Image.open("placeholder.webp"))
+        self.display_results_tab(Image.open("assets/placeholder.webp"))
 
         # Additional widgets for the results tab
         self.results_frame_controls = tk.Frame(self.tabs["results"], bg=config.THEME_COLOR)
@@ -1119,6 +1127,38 @@ class GUI:
         self.create_main_frame_buttons()
         self.create_calibration_controls()
 
+        self.cat_button = tk.Button(
+            self.main_frame_controls,
+            text="CAT ATTACK!",
+            bg=config.THEME_COLOR,
+            bd=0,
+            fg=config.THEME_COLOR,
+            activebackground=config.HIGHLIGHT_COLOR,
+            activeforeground=config.THEME_COLOR,
+            font=config.LABEL_FONT,
+            command=self.show_cat_image,
+        )
+        self.cat_button.grid(row=99, column=0, sticky='se')
+
+
+    def show_cat_image(self):
+        cat_image = Image.open(f"assets/cat{random.randint(0,5)}.webp")  # Replace with your cat image path
+        cat_image = cat_image.resize((300, 300))  # Resize the image if needed
+        
+        cat_photo = ImageTk.PhotoImage(cat_image)
+
+        self.cat_button.grid_forget()
+
+        self.cat_canvas = tk.Canvas(self.main_frame_controls, width=300, height=300, bg=config.THEME_COLOR, highlightthickness=0)
+        self.cat_canvas.grid(row=99, column=0, sticky='se')
+
+        self.cat_canvas.create_image(0, 0, anchor=tk.NW, image=cat_photo)
+        self.cat_canvas.image = cat_photo 
+        self.root.after(random.randint(2e3, 15e3), self.restore_cat)
+
+    def restore_cat(self):
+        self.cat_button.grid(row=99, column=0, sticky='se')
+        self.cat_canvas.grid_forget()
 
     def create_position_entries(self):
         """Create position entry fields for X, Y, and Z axes, with labels and even spacing."""
@@ -1392,8 +1432,8 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     end = [max(x_1, x_2), max(y_1, y_2)]
     
     # Disable buttons in the main tab
-    gui.toggle_buttons(gui.main_frame_controls ,'disabled')
-    gui.display_results_tab(Image.open("placeholder.webp"))
+    gui.toggle_buttons(gui.main_frame_controls ,'disabled', exclude=[gui.cat_button])
+    gui.display_results_tab(Image.open("assets/placeholder.webp"))
     gui.image_references = []
 
     # Start stitching thread
