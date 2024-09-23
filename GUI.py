@@ -637,49 +637,51 @@ class Monolayer:
 
         return median_minus_mean
 
-
 class GUI:
     def __init__(self, root, camera):
+        """Initialize the GUI and set up all components."""
+        # Initialize the main window
         self.root = root
         self.root.title('Camera Control Interface')
         self.root.configure(bg=config.THEME_COLOR)
 
+        # Initialize camera and image acquisition thread
         self.camera = camera
         self.image_acquisition_thread = ImageAcquisitionThread(self.camera, rotation_angle=270)
         self.image_acquisition_thread.start()
-        self.vel = 50  # Not sure what this does         
-    
+
         self.frame_queue = queue.Queue()
 
-        # Initialize MCM301 object
-        self.mcm301obj = stage_setup()
+        # Initialize the stage controller
+        self.stage_controller = stage_setup()
 
-        # Notebook and Tabs Setup (initialize self.tabs here)
+        # Setup notebook and tabs
         self.setup_notebook()
 
-        # Now that self.tabs is initialized, we can safely create the stitched view canvas
+        # Create stitched view canvas
         self.stitched_view_canvas = LiveViewCanvas(self.tabs["main"], queue.Queue())
         self.stitched_view_canvas.grid(row=1, column=0, padx=10, pady=10, sticky='nsew')
 
         # Flags to control image updates
         self.update_active_main = False
-        self.update_active_calib = False
+        self.update_active_calibration = False
 
         # Create UI Elements
         self.create_control_buttons()
         self.create_sliders()
-        self.create_360_wheel()
+        self.create_rotation_wheel()
 
-        # Initialize Live Position Labels
+        # Initialize live position labels
         self.init_position_labels()
 
-        # Start Live Position Updates
+        # Start live position updates
         self.update_positions()
 
-        # Initialize Progress Bar and Status Label
+        # Initialize progress bar and status label
         self.init_progress_bar()
         self.init_main_buttons()
 
+        # Handle window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def init_progress_bar(self):
@@ -689,79 +691,120 @@ class GUI:
         self.progress_status.set("Idle...")
 
         # Progress bar widget
-        self.progress_bar = ttk.Progressbar(self.main_frame_text, orient="horizontal", length=200, mode="determinate", variable=self.progress_value)
+        self.progress_bar = ttk.Progressbar(
+            self.main_frame_controls,
+            orient="horizontal",
+            length=200,
+            mode="determinate",
+            variable=self.progress_value
+        )
         self.progress_bar.grid(row=10, column=0, pady=10, sticky='ew', columnspan=2)
 
         # Progress status label
-        self.progress_label = tk.Label(self.main_frame_text, textvariable=self.progress_status, bg=config.THEME_COLOR, fg=config.TEXT_COLOR, font=config.LABEL_FONT)
+        self.progress_label = tk.Label(
+            self.main_frame_controls,
+            textvariable=self.progress_status,
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
         self.progress_label.grid(row=11, column=0, pady=5, sticky='w', columnspan=2)
 
     def init_main_buttons(self):
         """Initialize the buttons in the main tab."""
         # Frame for the buttons
-        scan_area_frame = tk.Frame(self.main_frame_text, bg=config.THEME_COLOR)
+        scan_area_frame = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR)
         scan_area_frame.grid(row=5, column=0, pady=10, sticky='w', columnspan=2)
 
         # Corner 1 Button
-        start_button = tk.Button(scan_area_frame, text="Corner 1", 
-                                command=self.update_corner1_position,
-                                bg=config.BUTTON_COLOR, fg=config.TEXT_COLOR, font=config.BUTTON_FONT)
-        start_button.pack(side=tk.LEFT, padx=10)
+        corner1_button = tk.Button(
+            scan_area_frame,
+            text="Corner 1",
+            command=self.update_corner1_position,
+            bg=config.BUTTON_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.BUTTON_FONT
+        )
+        corner1_button.pack(side=tk.LEFT, padx=10)
 
         # Corner 2 Button
-        end_button = tk.Button(scan_area_frame, text="Corner 2", 
-                            command=self.update_corner2_position,
-                            bg=config.BUTTON_COLOR, fg=config.TEXT_COLOR, font=config.BUTTON_FONT)
-        end_button.pack(side=tk.LEFT, padx=10)
-
+        corner2_button = tk.Button(
+            scan_area_frame,
+            text="Corner 2",
+            command=self.update_corner2_position,
+            bg=config.BUTTON_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.BUTTON_FONT
+        )
+        corner2_button.pack(side=tk.LEFT, padx=10)
 
         # Labels to display the positions of Corner 1 and Corner 2
-        self.corner1_pos_label = tk.Label(self.main_frame_text, text="Corner 1: Not Set", 
-                                        bg=config.THEME_COLOR, fg=config.TEXT_COLOR, font=config.LABEL_FONT)
-        self.corner1_pos_label.grid(row=6, column=0, pady=5, sticky='w', columnspan=2)
+        self.corner1_position_label = tk.Label(
+            self.main_frame_controls,
+            text="Corner 1: Not Set",
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
+        self.corner1_position_label.grid(row=6, column=0, pady=5, sticky='w', columnspan=2)
 
-        self.corner2_pos_label = tk.Label(self.main_frame_text, text="Corner 2: Not Set", 
-                                        bg=config.THEME_COLOR, fg=config.TEXT_COLOR, font=config.LABEL_FONT)
-        self.corner2_pos_label.grid(row=7, column=0, pady=5, sticky='w', columnspan=2)
+        self.corner2_position_label = tk.Label(
+            self.main_frame_controls,
+            text="Corner 2: Not Set",
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
+        self.corner2_position_label.grid(row=7, column=0, pady=5, sticky='w', columnspan=2)
 
-        alg_button = tk.Button(scan_area_frame, text="Begin Search", 
-           command=lambda: run_sequence(self, self.mcm301obj, self.image_acquisition_thread._image_queue, 
-                               self.frame_queue, config.start_pos, config.end_pos, self.stitched_view_canvas),
-           bg=config.BUTTON_COLOR, fg=config.TEXT_COLOR, font=config.BUTTON_FONT)
-        alg_button.pack(side=tk.BOTTOM, padx=10, pady=10)
+        # Begin Search Button
+        begin_search_button = tk.Button(
+            scan_area_frame,
+            text="Begin Search",
+            command=lambda: run_sequence(
+                self,
+                self.stage_controller,
+                self.image_acquisition_thread._image_queue,
+                self.frame_queue,
+                config.start_pos,
+                config.end_pos,
+                self.stitched_view_canvas
+            ),
+            bg=config.BUTTON_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.BUTTON_FONT
+        )
+        begin_search_button.pack(side=tk.BOTTOM, padx=10, pady=10)
 
     def update_corner1_position(self):
         """Update Corner 1 position label."""
-        pos = get_pos(self.mcm301obj, (4, 5))
-        config.start_pos.__setitem__(slice(None), pos)
-        formatted_pos = [f"{p:.2e}" for p in pos]
-        self.corner1_pos_label.config(text=f"Corner 1: {formatted_pos}")
+        position = get_pos(self.stage_controller, (4, 5))
+        config.start_pos.__setitem__(slice(None), position)
+        formatted_position = [f"{p:.2e}" for p in position]
+        self.corner1_position_label.config(text=f"Corner 1: {formatted_position}")
 
     def update_corner2_position(self):
         """Update Corner 2 position label."""
-        pos = get_pos(self.mcm301obj, (4, 5))
-        config.end_pos.__setitem__(slice(None), pos)
-        formatted_pos = [f"{p:.2e}" for p in pos]
-        self.corner2_pos_label.config(text=f"Corner 2: {formatted_pos}")
+        position = get_pos(self.stage_controller, (4, 5))
+        config.end_pos.__setitem__(slice(None), position)
+        formatted_position = [f"{p:.2e}" for p in position]
+        self.corner2_position_label.config(text=f"Corner 2: {formatted_position}")
 
     def toggle_buttons(self, widget, state: str):
         """
         Enable or disable all buttons in the main tab, including nested children.
 
         Args:
+            widget: The parent widget containing the buttons.
             state (str): The state of the buttons ('normal' to enable, 'disabled' to disable).
         """
-        def recursive_toggle(widget):
+        def recursive_toggle(w):
             """Recursively toggle buttons in the widget and its children."""
-            for child in widget.winfo_children():
+            for child in w.winfo_children():
                 if isinstance(child, tk.Button):
                     child.config(state=state)
-                # Recursively call this function on any children widgets (for nested frames, etc.)
                 recursive_toggle(child)
-
-        # Start the recursive toggle with the main frame
         recursive_toggle(widget)
-
 
     def update_progress(self, value, status_text):
         """Update the progress bar value and the status label."""
@@ -797,15 +840,19 @@ class GUI:
         # Configure styles for the notebook
         style.configure('TFrame', background=config.THEME_COLOR)
         style.configure('TNotebook', background=config.THEME_COLOR, foreground=config.TEXT_COLOR)
-        style.configure('TNotebook.Tab', 
-                        background=config.BUTTON_COLOR, 
-                        foreground=config.TEXT_COLOR, 
-                        font=config.LABEL_FONT, 
-                        padding=(5, 1))  # Add padding for better aesthetics
-        style.map('TNotebook.Tab', 
-                background=[('selected', config.HIGHLIGHT_COLOR)], 
-                foreground=[('selected', config.TEXT_COLOR)],
-                expand=[('selected', [1, 1, 1, 0])])  # Makes the selected tab standout
+        style.configure(
+            'TNotebook.Tab',
+            background=config.BUTTON_COLOR,
+            foreground=config.TEXT_COLOR,
+            font=config.LABEL_FONT,
+            padding=(5, 1)
+        )
+        style.map(
+            'TNotebook.Tab',
+            background=[('selected', config.HIGHLIGHT_COLOR)],
+            foreground=[('selected', config.TEXT_COLOR)],
+            expand=[('selected', [1, 1, 1, 0])]
+        )
         style.configure("TProgressbar", troughcolor=config.THEME_COLOR, background=config.HIGHLIGHT_COLOR, thickness=20)
 
         # Bind tab change event
@@ -814,16 +861,16 @@ class GUI:
         # Main Control Tab Layout
         self.main_frame_image = LiveViewCanvas(self.tabs["main"], self.image_acquisition_thread._image_queue)
         self.main_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
-        
-        self.main_frame_text = tk.Frame(self.tabs["main"], bg=config.THEME_COLOR)
-        self.main_frame_text.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
+
+        self.main_frame_controls = tk.Frame(self.tabs["main"], bg=config.THEME_COLOR)
+        self.main_frame_controls.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
 
         # Calibration Tab Layout
-        self.calib_frame_image = LiveViewCanvas(self.tabs["calibration"], self.image_acquisition_thread._image_queue)
-        self.calib_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
-        
-        self.calib_frame_text = tk.Frame(self.tabs["calibration"], bg=config.THEME_COLOR)
-        self.calib_frame_text.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
+        self.calibration_frame_image = LiveViewCanvas(self.tabs["calibration"], self.image_acquisition_thread._image_queue)
+        self.calibration_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
+
+        self.calibration_frame_controls = tk.Frame(self.tabs["calibration"], bg=config.THEME_COLOR)
+        self.calibration_frame_controls.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
 
         # Results Tab Layout
         self.results_frame_image = tk.Canvas(self.tabs["results"], bg=config.THEME_COLOR, highlightthickness=0)
@@ -832,15 +879,14 @@ class GUI:
         # Load and display the image
         self.display_image_on_results_tab(Image.open("placeholder.webp"))
 
-        # A text or additional widget can be added on the right side if necessary
-        self.results_frame_text = tk.Frame(self.tabs["results"], bg=config.THEME_COLOR)
-        self.results_frame_text.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
+        # Additional widgets for the results tab
+        self.results_frame_controls = tk.Frame(self.tabs["results"], bg=config.THEME_COLOR)
+        self.results_frame_controls.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
 
         # Configure the grid for the results tab
         self.tabs["results"].grid_columnconfigure(0, weight=1)
-        self.tabs["results"].grid_columnconfigure(1, weight=1) 
-        self.tabs["results"].grid_rowconfigure(0, weight=1) 
-
+        self.tabs["results"].grid_columnconfigure(1, weight=1)
+        self.tabs["results"].grid_rowconfigure(0, weight=1)
 
         # Responsive Layout Configuration
         for tab in self.tabs.values():
@@ -852,7 +898,7 @@ class GUI:
         notebook.grid_rowconfigure(0, weight=1)
 
         self.main_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
-        self.calib_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
+        self.calibration_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
 
     def display_image_on_results_tab(self, image):
         """
@@ -866,6 +912,10 @@ class GUI:
             # Get the current width and height of the canvas
             canvas_width = self.results_frame_image.winfo_width() if event is None else event.width
             canvas_height = self.results_frame_image.winfo_height() if event is None else event.height
+
+            # **Add this check to prevent zero or negative dimensions**
+            if canvas_width <= 0 or canvas_height <= 0:
+                return
 
             # Check if the image has a valid aspect ratio and dimensions
             if image.width == 0 or image.height == 0:
@@ -882,6 +932,10 @@ class GUI:
                 new_height = canvas_height
                 new_width = int(new_height * aspect_ratio)
 
+            # Ensure new dimensions are greater than zero
+            new_width = max(1, int(new_width))
+            new_height = max(1, int(new_height))
+
             # Resize the image while maintaining the aspect ratio
             resized_image = image.resize((new_width, new_height), Image.LANCZOS)
 
@@ -895,37 +949,70 @@ class GUI:
         # Bind resizing event to dynamically update the image size
         self.results_frame_image.bind("<Configure>", update_image_on_resize)
 
-        # Call once initially to display the image
-        self.root.after(0, update_image_on_resize)
-
+        # **Delay the initial call to allow GUI to initialize**
+        self.root.after(100, update_image_on_resize)
 
 
     def init_position_labels(self):
         """Initialize position labels for live updates."""
-        self.pos_names = ["Pos X", "Pos Y", "Focus Z"]
+        self.position_names = ["Pos X", "Pos Y", "Focus Z"]
         self.position_labels_main = []
-        self.position_labels_calib = []
+        self.position_labels_calibration = []
 
-        for i, name in enumerate(self.pos_names):
-            label_main = tk.Label(self.main_frame_text, text=name, padx=10, pady=5, bg=config.THEME_COLOR, fg=config.TEXT_COLOR, font=config.LABEL_FONT)
+        for i, name in enumerate(self.position_names):
+            # Main tab labels
+            label_main = tk.Label(
+                self.main_frame_controls,
+                text=name,
+                padx=10,
+                pady=5,
+                bg=config.THEME_COLOR,
+                fg=config.TEXT_COLOR,
+                font=config.LABEL_FONT
+            )
             label_main.grid(row=i, column=0, sticky='w')
-            pos_label_main = tk.Label(self.main_frame_text, text="0.00 nm", padx=5, bg=config.BUTTON_COLOR, fg=config.TEXT_COLOR, width=15, font=config.LABEL_FONT)
+            pos_label_main = tk.Label(
+                self.main_frame_controls,
+                text="0.00 nm",
+                padx=5,
+                bg=config.BUTTON_COLOR,
+                fg=config.TEXT_COLOR,
+                width=15,
+                font=config.LABEL_FONT
+            )
             pos_label_main.grid(row=i, column=1, sticky='w')
             self.position_labels_main.append(pos_label_main)
 
-            label_calib = tk.Label(self.calib_frame_text, text=name, padx=10, pady=5, bg=config.THEME_COLOR, fg=config.TEXT_COLOR, font=config.LABEL_FONT)
-            label_calib.grid(row=i, column=0, sticky='w', padx=(10, 5), pady=(5, 5))
-            pos_label_calib = tk.Label(self.calib_frame_text, text="0.00 nm", padx=5, bg=config.BUTTON_COLOR, fg=config.TEXT_COLOR, width=15, font=config.LABEL_FONT)
-            pos_label_calib.grid(row=i, column=1, sticky='w', padx=(5, 10), pady=(5, 5))
-            self.position_labels_calib.append(pos_label_calib)
+            # Calibration tab labels
+            label_calibration = tk.Label(
+                self.calibration_frame_controls,
+                text=name,
+                padx=10,
+                pady=5,
+                bg=config.THEME_COLOR,
+                fg=config.TEXT_COLOR,
+                font=config.LABEL_FONT
+            )
+            label_calibration.grid(row=i, column=0, sticky='w', padx=(10, 5), pady=(5, 5))
+            pos_label_calibration = tk.Label(
+                self.calibration_frame_controls,
+                text="0.00 nm",
+                padx=5,
+                bg=config.BUTTON_COLOR,
+                fg=config.TEXT_COLOR,
+                width=15,
+                font=config.LABEL_FONT
+            )
+            pos_label_calibration.grid(row=i, column=1, sticky='w', padx=(5, 10), pady=(5, 5))
+            self.position_labels_calibration.append(pos_label_calibration)
 
     def update_positions(self):
         """Update the positions displayed in the GUI."""
-        positions = get_pos(self.mcm301obj, stages=(4, 5, 6))
+        positions = get_pos(self.stage_controller, stages=(4, 5, 6))
         for i, pos_label in enumerate(self.position_labels_main):
             pos_label.config(text=f"{positions[i]:.2e} nm")
 
-        for i, pos_label in enumerate(self.position_labels_calib):
+        for i, pos_label in enumerate(self.position_labels_calibration):
             pos_label.config(text=f"{positions[i]:.2e} nm")
 
         # Schedule the next update
@@ -936,163 +1023,269 @@ class GUI:
         selected_tab = event.widget.index("current")
         if selected_tab == 0:  # Main Tab
             self.update_active_main = True
-            self.update_active_calib = False
+            self.update_active_calibration = False
             self.main_frame_image.set_active(True)
-            self.calib_frame_image.set_active(False)
+            self.calibration_frame_image.set_active(False)
         elif selected_tab == 1:  # Calibration Tab
             self.update_active_main = False
-            self.update_active_calib = True
+            self.update_active_calibration = True
             self.main_frame_image.set_active(False)
-            self.calib_frame_image.set_active(True)
+            self.calibration_frame_image.set_active(True)
         else:
             self.update_active_main = False
-            self.update_active_calib = False
+            self.update_active_calibration = False
             self.stop_image_updates()
 
     def stop_image_updates(self):
         """Stop image updates when not on the main or calibration tabs."""
         self.main_frame_image.set_active(False)
-        self.calib_frame_image.set_active(False)
+        self.calibration_frame_image.set_active(False)
 
     def create_control_buttons(self):
-        self.enter_pos = tk.Label(self.main_frame_text, text="Enter Positions (nm):", bg=config.THEME_COLOR, fg=config.TEXT_COLOR, font=config.HEADING_FONT)
-        self.enter_pos.grid(row=3, column=0, pady=10, sticky='w')
-        self.enter_focus = tk.Label(self.calib_frame_text, text="Focus Control:", bg=config.THEME_COLOR, fg=config.TEXT_COLOR, font=config.HEADING_FONT)
-        self.enter_focus.grid(row=5, column=0, pady=10, sticky='w', columnspan=2)
+        """Create control buttons and labels for the main and calibration tabs."""
+        # Main tab position entry label
+        self.position_entry_label = tk.Label(
+            self.main_frame_controls,
+            text="Enter Positions (nm):",
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.HEADING_FONT
+        )
+        self.position_entry_label.grid(row=3, column=0, pady=10, sticky='w')
+
+        # Calibration tab focus control label
+        self.focus_control_label = tk.Label(
+            self.calibration_frame_controls,
+            text="Focus Control:",
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.HEADING_FONT
+        )
+        self.focus_control_label.grid(row=5, column=0, pady=10, sticky='w', columnspan=2)
 
         self.create_position_entries()
         self.create_main_frame_buttons()
         self.create_calibration_controls()
 
     def create_position_entries(self):
-        self.pos_entry_x = tk.Entry(self.main_frame_text, font=config.LABEL_FONT)
-        self.pos_entry_x.grid(row=4, column=0, pady=10, sticky='w')
-        self.pos_entry_y = tk.Entry(self.main_frame_text, font=config.LABEL_FONT)
-        self.pos_entry_y.grid(row=4, column=1, pady=10, sticky='w')
-        self.pos_entry_z = tk.Entry(self.calib_frame_text, font=config.LABEL_FONT)
-        self.pos_entry_z.grid(row=4, column=1, pady=10, sticky='w')
+        """Create position entry fields for X, Y, and Z axes."""
+        self.position_entry_x = tk.Entry(self.main_frame_controls, font=config.LABEL_FONT)
+        self.position_entry_x.grid(row=4, column=0, pady=10, sticky='w')
+        self.position_entry_y = tk.Entry(self.main_frame_controls, font=config.LABEL_FONT)
+        self.position_entry_y.grid(row=4, column=1, pady=10, sticky='w')
+        self.position_entry_z = tk.Entry(self.calibration_frame_controls, font=config.LABEL_FONT)
+        self.position_entry_z.grid(row=4, column=1, pady=10, sticky='w')
 
-        self.pos_entry_x.bind('<Return>', lambda event, type="XY": self.submit_entries(type))
-        self.pos_entry_y.bind('<Return>', lambda event, type="XY": self.submit_entries(type))
-        self.pos_entry_z.bind('<Return>', lambda event, type="Z": self.submit_entries(type))
+        self.position_entry_x.bind('<Return>', lambda event, type="XY": self.submit_entries(type))
+        self.position_entry_y.bind('<Return>', lambda event, type="XY": self.submit_entries(type))
+        self.position_entry_z.bind('<Return>', lambda event, type="Z": self.submit_entries(type))
 
     def create_main_frame_buttons(self):
-        self.main_frame_text_pos = tk.Frame(self.main_frame_text, bg=config.THEME_COLOR, padx=25)
-        self.main_frame_text_pos.grid(row=5, sticky='w', pady=30)
+        """Create buttons in the main frame."""
+        self.main_frame_controls_position = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR, padx=25)
+        self.main_frame_controls_position.grid(row=5, sticky='w', pady=30)
 
     def create_calibration_controls(self):
-        calib_button_focus_label = tk.Label(self.calib_frame_text, text="Focus Slider", bg=config.THEME_COLOR, fg=config.TEXT_COLOR, font=config.LABEL_FONT)
-        calib_button_focus_label.grid(row=6, column=0, pady=10, columnspan=2, sticky='w')
+        """Create the calibration controls including navigation buttons with equal size."""
+        # Insert a spacer frame to add a gap above the move controls
+        spacer_frame = tk.Frame(self.main_frame_controls, height=20, bg=config.THEME_COLOR)
+        spacer_frame.grid(row=12, column=0, columnspan=4)
 
-        # Create navigation buttons for calibration tab
-        calib_controls = [
-            ("Up", (7, 1), lambda: move_relative(self.mcm301obj, pos=[int(-config.DIST / 2)], stages=(5,), wait=False)),
-            ("Left", (8, 0), lambda: move_relative(self.mcm301obj, pos=[int(-config.DIST / 2)], stages=(4,), wait=False)),
-            ("Right", (8, 2), lambda: move_relative(self.mcm301obj, pos=[int(config.DIST / 2)], stages=(4,), wait=False)),
-            ("Down", (9, 1), lambda: move_relative(self.mcm301obj, pos=[int(config.DIST / 2)], stages=(5,), wait=False)),
-            ("Focus +", (7, 3), lambda: move_relative(self.mcm301obj, pos=[10000], stages=(6,), wait=False)),
-            ("Focus -", (9, 3), lambda: move_relative(self.mcm301obj, pos=[-10000], stages=(6,), wait=False))
+        # Label for Move Controls
+        move_controls_label = tk.Label(
+            self.main_frame_controls,
+            text="Move Controls",
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
+        move_controls_label.grid(row=13, column=0, pady=10, columnspan=2, sticky='w')
+
+        # Create a frame for the navigation and focus buttons
+        navigation_frame = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR)
+        navigation_frame.grid(row=14, column=0, columnspan=4, rowspan=3, padx=10, pady=10, sticky='nsew')
+
+        # Configure the grid within navigation_frame (4 columns to include focus buttons)
+        for col in range(4):
+            navigation_frame.columnconfigure(col, weight=1, uniform='col')
+        for row in range(3):
+            navigation_frame.rowconfigure(row, weight=1, uniform='row')
+
+        # Navigation buttons positions
+        navigation_buttons = [
+            ("Up", (0, 1), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST / 2)], stages=(5,), wait=False)),
+            ("Left", (1, 0), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST / 2)], stages=(4,), wait=False)),
+            ("Right", (1, 2), lambda: move_relative(self.stage_controller, pos=[int(config.DIST / 2)], stages=(4,), wait=False)),
+            ("Down", (2, 1), lambda: move_relative(self.stage_controller, pos=[int(config.DIST / 2)], stages=(5,), wait=False)),
         ]
 
-        for text, (row, col), cmd in calib_controls:
-            button = tk.Button(self.calib_frame_text, text=text, command=cmd, bg=config.BUTTON_COLOR, fg=config.TEXT_COLOR, font=config.BUTTON_FONT)
-            button.grid(row=row, column=col, padx=10, pady=5, sticky='nsew')
+        # Focus buttons positions (placed in their own column)
+        focus_buttons = [
+            ("Focus +", (0, 3), lambda: move_relative(self.stage_controller, pos=[10000], stages=(6,), wait=False)),
+            ("Focus -", (2, 3), lambda: move_relative(self.stage_controller, pos=[-10000], stages=(6,), wait=False)),
+        ]
+
+        # Create navigation buttons with equal size
+        for text, (row, col), cmd in navigation_buttons:
+            button = tk.Button(
+                navigation_frame,
+                text=text,
+                command=cmd,
+                bg=config.BUTTON_COLOR,
+                fg=config.TEXT_COLOR,
+                font=config.BUTTON_FONT,
+                width=5,    # Adjust width for smaller size
+                height=2    # Adjust height for square shape
+            )
+            button.grid(row=row, column=col, padx=2, pady=2, sticky='nsew')
+
+        # Create focus buttons in their own column
+        for text, (row, col), cmd in focus_buttons:
+            # Ensure the focus button column is configured
+            navigation_frame.columnconfigure(col, weight=1, uniform='col')
+            button = tk.Button(
+                navigation_frame,
+                text=text,
+                command=cmd,
+                bg=config.BUTTON_COLOR,
+                fg=config.TEXT_COLOR,
+                font=config.BUTTON_FONT,
+                width=3,
+                height=2
+            )
+            button.grid(row=row, column=col, padx=2, pady=2, sticky='nsew')
+
+        # Optional: Adjust the middle row height if needed
+        navigation_frame.rowconfigure(1, weight=1, uniform='row')
 
     def create_sliders(self):
-        slider_frame = tk.Frame(self.calib_frame_text, bg=config.THEME_COLOR)
+        """Create sliders for the calibration tab."""
+        slider_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
         slider_frame.grid(row=10, column=0, columnspan=2, padx=10, pady=10, sticky='nsew')
 
-        slider_focus_label = tk.Label(slider_frame, text="Focus Slider:", bg=config.THEME_COLOR, fg=config.TEXT_COLOR, font=config.LABEL_FONT)
+        slider_focus_label = tk.Label(
+            slider_frame,
+            text="Focus Slider:",
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
         slider_focus_label.grid(row=0, column=0, pady=10, sticky='w')
 
-        slider_focus = tk.Scale(slider_frame, from_=100000, to=1000000, orient='vertical',
-                                command=lambda event: self.on_focus_slider_change(event), bg=config.THEME_COLOR, fg=config.TEXT_COLOR)
+        slider_focus = tk.Scale(
+            slider_frame,
+            from_=100000,
+            to=1000000,
+            orient='vertical',
+            command=lambda event: self.on_focus_slider_change(event),
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR
+        )
         slider_focus.grid(row=1, column=0, padx=20, pady=10, sticky='nsew')
 
-    def create_360_wheel(self):
-        wheel_frame = tk.Frame(self.calib_frame_text, bg=config.THEME_COLOR)
+    def create_rotation_wheel(self):
+        """Create a 360-degree rotation wheel in the calibration tab."""
+        wheel_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
         wheel_frame.grid(row=11, column=0, columnspan=2, padx=20, pady=20, sticky='nsew')
 
-        camera_wheel_label = tk.Label(self.calib_frame_text, text="360 Degree Wheel:", background=config.THEME_COLOR, foreground=config.TEXT_COLOR, font=config.LABEL_FONT)
-        camera_wheel_label.grid(row=12, column=0, pady=10, columnspan=2)
+        rotation_wheel_label = tk.Label(
+            self.calibration_frame_controls,
+            text="360 Degree Wheel:",
+            background=config.THEME_COLOR,
+            foreground=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
+        rotation_wheel_label.grid(row=12, column=0, pady=10, columnspan=2)
 
         self.canvas = tk.Canvas(wheel_frame, width=200, height=200, bg=config.THEME_COLOR, highlightthickness=0)
         self.canvas.pack()
 
-        self.radius = 80
-        self.center_x = 100
-        self.center_y = 100
+        self.wheel_radius = 80
+        self.wheel_center_x = 100
+        self.wheel_center_y = 100
 
-        self.image = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
-        self.draw = ImageDraw.Draw(self.image)
+        self.wheel_image = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
+        self.wheel_draw = ImageDraw.Draw(self.wheel_image)
         self.draw_anti_aliased_wheel()
 
-        self.tk_image = ImageTk.PhotoImage(self.image)
-        self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
-        self.pointer_line = self.canvas.create_line(self.center_x, self.center_y,
-                                                    self.center_x + self.radius, self.center_y,
-                                                    width=2, fill=config.HIGHLIGHT_COLOR)
+        self.wheel_tk_image = ImageTk.PhotoImage(self.wheel_image)
+        self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.wheel_tk_image)
+        self.pointer_line = self.canvas.create_line(
+            self.wheel_center_x,
+            self.wheel_center_y,
+            self.wheel_center_x + self.wheel_radius,
+            self.wheel_center_y,
+            width=2,
+            fill=config.HIGHLIGHT_COLOR
+        )
         self.canvas.bind("<B1-Motion>", self.update_wheel)
 
         self.angle_entry = tk.Entry(wheel_frame, width=5, font=config.LABEL_FONT)
         self.angle_entry.pack(pady=10)
         self.angle_entry.insert(0, "270")
         self.angle_entry.bind("<Return>", self.set_angle_from_entry)
-        end_x = self.center_x + self.radius * math.cos(math.radians(270))
-        end_y = self.center_y + self.radius * math.sin(math.radians(270))
-        self.canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
-
+        end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(270))
+        end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(270))
+        self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
 
     def on_focus_slider_change(self, event):
+        """Handle changes in the focus slider."""
         focus_value = int(event)
         print(f"Focus Slider moved to: {focus_value}")
 
-
     def draw_anti_aliased_wheel(self):
-        self.draw.ellipse(
-            [self.center_x - self.radius, self.center_y - self.radius,
-             self.center_x + self.radius, self.center_y + self.radius],
+        """Draw an anti-aliased wheel for the rotation control."""
+        self.wheel_draw.ellipse(
+            [self.wheel_center_x - self.wheel_radius, self.wheel_center_y - self.wheel_radius,
+             self.wheel_center_x + self.wheel_radius, self.wheel_center_y + self.wheel_radius],
             outline=config.HIGHLIGHT_COLOR, width=2
         )
 
     def update_wheel(self, event):
-        dx = event.x - self.center_x
-        dy = event.y - self.center_y
+        """Update the rotation wheel based on mouse movement."""
+        dx = event.x - self.wheel_center_x
+        dy = event.y - self.wheel_center_y
         angle = int(math.degrees(math.atan2(dy, dx))) % 360
 
-        end_x = self.center_x + self.radius * math.cos(math.radians(angle))
-        end_y = self.center_y + self.radius * math.sin(math.radians(angle))
-        self.canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
+        end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(angle))
+        end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(angle))
+        self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
 
         self.angle_entry.delete(0, tk.END)
         self.angle_entry.insert(0, f"{angle:.0f}")
         self.image_acquisition_thread._rotation_angle = float(self.angle_entry.get())
 
     def submit_entries(self, type="XY"):
+        """Submit the position entries and initiate movement."""
         if type == "XY":
-            enter_x = self.pos_entry_x.get().strip()
-            enter_y = self.pos_entry_y.get().strip()
+            enter_x = self.position_entry_x.get().strip()
+            enter_y = self.position_entry_y.get().strip()
             if self.validate_entries(enter_x, enter_y):
-                threading.Thread(target=self.move_and_update_progress, args=([int(enter_x) * 1, int(enter_y) * 1],), daemon=True).start()
+                threading.Thread(
+                    target=self.move_and_update_progress,
+                    args=([int(enter_x), int(enter_y)],),
+                    daemon=True
+                ).start()
         elif type == "Z":
-            enter_z = self.pos_entry_z.get().strip()
+            enter_z = self.position_entry_z.get().strip()
             if self.validate_entries(enter_z):
-                threading.Thread(target=self.move_and_update_progress, args=([int(enter_z) * 1], (6,)), daemon=True).start()
+                threading.Thread(
+                    target=self.move_and_update_progress,
+                    args=([int(enter_z)], (6,)),
+                    daemon=True
+                ).start()
 
-
-
-    ############################## TEST ONLY, REPLACE WITH ACTUAL UPDATES ##############################
     def move_and_update_progress(self, pos, stages=(4, 5)):
         """Move the stage to a position and update the progress bar during the operation."""
         self.update_progress(0, "Moving stage...")
 
-        move(self.mcm301obj, pos, stages, wait=False)  # Simulating movement
+        move(self.stage_controller, pos, stages, wait=False)  # Simulating movement
         self.root.update_idletasks()  # Ensure UI gets updated during the loop
 
         self.update_progress(100, "Movement complete.")
-    #####################################################################################################
 
     def validate_entries(self, *entries):
+        """Validate that the entries are integers."""
         for entry in entries:
             if not entry.isdigit():
                 messagebox.showerror("Input Error", "All fields must be integers!")
@@ -1100,15 +1293,16 @@ class GUI:
         return True
 
     def set_angle_from_entry(self, event):
+        """Set the rotation angle from the entry field."""
         try:
             angle = float(self.angle_entry.get()) % 360
         except ValueError:
             angle = 0
 
-        end_x = self.center_x + self.radius * math.cos(math.radians(angle))
-        end_y = self.center_y + self.radius * math.sin(math.radians(angle))
-        self.canvas.coords(self.pointer_line, self.center_x, self.center_y, end_x, end_y)
-        self.image_acquisition_thread._rotation_angle = float(self.angle_entry.get())
+        end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(angle))
+        end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(angle))
+        self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
+        self.image_acquisition_thread._rotation_angle = angle
 
         print(f"Camera rotation set to: {angle:.2f} degrees")
 
@@ -1123,6 +1317,7 @@ class GUI:
         self.root.destroy()
 
 
+
 def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_view_canvas):
 
     x_1, y_1 = start
@@ -1131,7 +1326,7 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     end = [max(x_1, x_2), max(y_1, y_2)]
     
     # Disable buttons in the main tab
-    gui.toggle_buttons(gui.main_frame_text ,'disabled')
+    gui.toggle_buttons(gui.main_frame_controls ,'disabled')
     gui.display_image_on_results_tab(Image.open("placeholder.webp"))
 
     # Start stitching thread
@@ -1145,7 +1340,7 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     # Define a function to check if stitching is complete
     def check_stitching_complete():
         stitching_thread.join()  # Wait for stitching to finish
-        gui.toggle_buttons(gui.main_frame_text ,'normal')  # Enable buttons again
+        gui.toggle_buttons(gui.main_frame_controls ,'normal')  # Enable buttons again
 
     # Start a separate thread to re-enable buttons once stitching is done
     threading.Thread(target=check_stitching_complete, daemon=True).start()
@@ -1155,11 +1350,12 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
 if __name__ == "__main__":
     with TLCameraSDK() as sdk:
         camera_list = sdk.discover_available_cameras()
+        # print(camera_list)
         if len(camera_list) == 0:
             print("No cameras found.")
             sys.exit(1)
 
-        with sdk.open_camera(camera_list[0]) as camera:
+        with sdk.open_camera(camera_list[-1]) as camera:
             print(f"Camera {camera_list[0]} initialized.")
             
             # Ensure the camera is properly armed
