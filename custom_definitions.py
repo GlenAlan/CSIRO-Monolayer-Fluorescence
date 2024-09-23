@@ -93,7 +93,7 @@ def save_image(image, filename, scale_down_factor=1):
     print(format_size(os.path.getsize(filename)))
 
 
-def stage_setup():
+def stage_setup(home=True):
     """
     Initializes and sets up the stage for movement. It first creates an instance of the MCM301 object
     and checks for connected devices. If a device is found, it connects to the first one in the list.
@@ -131,21 +131,22 @@ def stage_setup():
         exit()
 
     # Home the stages
-    for stage_num in (4,5):
-        print(f"Homing stage {stage_num}")
-        mcm301obj.home(stage_num)
+    if home:
+        for stage_num in (4,5):
+            print(f"Homing stage {stage_num}")
+            mcm301obj.home(stage_num)
 
-    # Wait for homing to complete by checking the status bits
-    bits_x, bits_y = [0], [0]
-    while bits_x[0] not in config.CONFIRMATION_BITS or bits_y[0] not in config.CONFIRMATION_BITS:
-        mcm301obj.get_mot_status(4, [0], bits_x)
-        mcm301obj.get_mot_status(5, [0], bits_y)
-        # print(f"x: {bits_x}, y:{bits_y}")
-   
-    print("Homing complete")
-    print("Stage setup complete\n")
+        # Wait for homing to complete by checking the status bits
+        bits_x, bits_y = [0], [0]
+        while bits_x[0] not in config.CONFIRMATION_BITS or bits_y[0] not in config.CONFIRMATION_BITS:
+            mcm301obj.get_mot_status(4, [0], bits_x)
+            mcm301obj.get_mot_status(5, [0], bits_y)
+            # print(f"x: {bits_x}, y:{bits_y}")
+    
+        print("Homing complete")
+        print("Stage setup complete\n")
 
-    move(mcm301obj, (1e6, 1e6), wait=False)
+        move(mcm301obj, (1e6, 1e6), wait=False)
 
     return mcm301obj
 

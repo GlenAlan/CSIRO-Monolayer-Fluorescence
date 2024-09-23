@@ -188,3 +188,4 @@ We also performed our first test of the software on a real sample. This detectio
 - [ ] Add a save and load for settings etc.
 - [ ] Add automatic focus adjustment (every frame)
 - [ ] Give the window a logo and package it into a .exe if possible
+- [ ] Select Camera
