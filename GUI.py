@@ -97,30 +97,6 @@ class LiveViewCanvas(tk.Canvas):
         self.is_active = active
 
 
-def get_scan_area(mcm301obj):
-    """
-    Retrieves the start and end positions for the scan algorithm.
-
-    Args:
-        mcm301obj (MCM301): The MCM301 object that controls the stage.
-   
-    Returns:
-        start, end: Lists of positions corresponding to the start and end position,
-                    in nanometers.
-   
-    The function queries the current encoder value for each specified stage,
-    converts that value into nanometers, and returns the positions as a list.
-    """
-    input("Please move the stage to one corner of the sample. Press ENTER when complete")
-    x_1, y_1 = get_pos(mcm301obj, (4, 5))
-    input("Please move the stage to the opposite corner of the sample. Press ENTER when complete")
-    x_2, y_2 = get_pos(mcm301obj, (4, 5))
-    start = [min(x_1, x_2), min(y_1, y_2)]
-    end = [max(x_1, x_2), max(y_1, y_2)]
-    print()
-    return start, end
-
-
 def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     """
     Adds an image with an alpha channel to the canvas at the specified center coordinates using PyTorch for GPU acceleration.
@@ -379,11 +355,13 @@ def post_processing(gui, canvas, start, contrast=2, threshold=100):
     save_image(contour_image, "Images/highlighted_monolayers.png", 5)
     print("Saved!")
 
-    gui.display_image_on_results_tab(Image.fromarray(cv2.cvtColor(scale_down_canvas(contour_image, 10), cv2.COLOR_BGRA2RGBA)))
-
     # Sort monolayers by area removing any which are too small
     monolayers = [layer for layer in monolayers if layer.area_um >= downscale_factor]
     monolayers.sort(key=operator.attrgetter('area'))
+    monolayers.reverse()
+
+    gui.display_results_tab(Image.fromarray(cv2.cvtColor(scale_down_canvas(contour_image, 10), cv2.COLOR_BGRA2RGBA)), monolayers)
+
 
     for i, layer in enumerate(monolayers):
         print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}      Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
@@ -653,7 +631,7 @@ class GUI:
         self.frame_queue = queue.Queue()
 
         # Initialize the stage controller
-        self.stage_controller = stage_setup()
+        self.stage_controller = stage_setup(home=False)
 
         # Setup notebook and tabs
         self.setup_notebook()
@@ -668,7 +646,6 @@ class GUI:
 
         # Create UI Elements
         self.create_control_buttons()
-        self.create_sliders()
         self.create_rotation_wheel()
 
         # Initialize live position labels
@@ -779,16 +756,24 @@ class GUI:
     def update_corner1_position(self):
         """Update Corner 1 position label."""
         position = get_pos(self.stage_controller, (4, 5))
-        config.start_pos.__setitem__(slice(None), position)
+        config.corner1.__setitem__(slice(None), position)
         formatted_position = [f"{p:.2e}" for p in position]
         self.corner1_position_label.config(text=f"Corner 1: {formatted_position}")
+        self.update_start_end(config.start_pos, config.end_pos)
 
     def update_corner2_position(self):
         """Update Corner 2 position label."""
         position = get_pos(self.stage_controller, (4, 5))
-        config.end_pos.__setitem__(slice(None), position)
+        config.corner2.__setitem__(slice(None), position)
         formatted_position = [f"{p:.2e}" for p in position]
         self.corner2_position_label.config(text=f"Corner 2: {formatted_position}")
+        self.update_start_end(config.corner1, config.corner2)
+
+    def update_start_end(self, start, end):
+        x_1, y_1 = start
+        x_2, y_2 = end
+        config.start_pos = [min(x_1, x_2), min(y_1, y_2)]
+        config.end_pos = [max(x_1, x_2), max(y_1, y_2)]
 
     def toggle_buttons(self, widget, state: str):
         """
@@ -877,7 +862,7 @@ class GUI:
         self.results_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
 
         # Load and display the image
-        self.display_image_on_results_tab(Image.open("placeholder.webp"))
+        self.display_results_tab(Image.open("placeholder.webp"))
 
         # Additional widgets for the results tab
         self.results_frame_controls = tk.Frame(self.tabs["results"], bg=config.THEME_COLOR)
@@ -900,29 +885,31 @@ class GUI:
         self.main_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
         self.calibration_frame_image.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
 
-    def display_image_on_results_tab(self, image):
+    def display_results_tab(self, image, monolayers=None):
         """
         Load and display an image in the left half of the results tab. The image is scaled to fit the Canvas.
+        If monolayers is provided, display a treeview on the right half with monolayer images and attributes.
         """
         if not isinstance(image, Image.Image):
             print(f"Invalid image type: {type(image)}. Expected PIL.Image.")
             return
 
-        def update_image_on_resize(event=None):
-            # Get the current width and height of the canvas
-            canvas_width = self.results_frame_image.winfo_width() if event is None else event.width
-            canvas_height = self.results_frame_image.winfo_height() if event is None else event.height
+        # Update the image in the left canvas
+        MIN_WIDTH = 400  # Set your minimum width here
+        MIN_HEIGHT = 400  # Set your minimum height here
 
-            # **Add this check to prevent zero or negative dimensions**
+        # Update the image in the left canvas
+        def update_image_on_resize(event=None):
+            canvas_width = max(self.results_frame_image.winfo_width(), MIN_WIDTH)
+            canvas_height = max(self.results_frame_image.winfo_height(), MIN_HEIGHT)
+
             if canvas_width <= 0 or canvas_height <= 0:
                 return
 
-            # Check if the image has a valid aspect ratio and dimensions
             if image.width == 0 or image.height == 0:
                 print("Invalid image dimensions.")
                 return
 
-            # Maintain aspect ratio while resizing
             aspect_ratio = image.width / image.height
 
             if canvas_width / aspect_ratio < canvas_height:
@@ -932,25 +919,90 @@ class GUI:
                 new_height = canvas_height
                 new_width = int(new_height * aspect_ratio)
 
-            # Ensure new dimensions are greater than zero
             new_width = max(1, int(new_width))
             new_height = max(1, int(new_height))
 
-            # Resize the image while maintaining the aspect ratio
             resized_image = image.resize((new_width, new_height), Image.LANCZOS)
-
-            # Update the image in the canvas
             self._resized_image = ImageTk.PhotoImage(resized_image)
-
-            # Clear the previous image and display the new one
             self.results_frame_image.delete("all")
             self.results_frame_image.create_image(0, 0, anchor='nw', image=self._resized_image)
 
-        # Bind resizing event to dynamically update the image size
+        # Set minimum size and disable shrinking below this size
+        self.results_frame_image.config(width=MIN_WIDTH, height=MIN_HEIGHT)
+        self.results_frame_image.grid_propagate(False)  # Prevent the canvas from shrinking below its minimum size
+
+        # Bind event to dynamically update image size when the canvas is resized
         self.results_frame_image.bind("<Configure>", update_image_on_resize)
 
-        # **Delay the initial call to allow GUI to initialize**
+        # Delay the initial call to allow GUI to initialize
         self.root.after(100, update_image_on_resize)
+
+        if monolayers is not None:
+            # Clear existing widgets
+            for widget in self.results_frame_controls.winfo_children():
+                widget.destroy()
+
+            # Define columns
+            columns = ('Area (um^2)', 'Centre', 'Entropy', 'TV Norm', 'Intensity Variance', 'CNR', 'Skewness', 'Index')
+            tree = ttk.Treeview(self.results_frame_controls, columns=columns, show='tree headings')
+            tree.heading('#0', text='Image')
+
+            # Setup column headings
+            for col in columns[:-1]:
+                tree.heading(col, text=col)
+
+            tree.column('#0', width=160, anchor='center')
+            for col in columns[:-1]:
+                tree.column(col, width=100, anchor='center')
+            tree.column('Index', width=0, stretch=False)
+
+            # Style for row height
+            style = ttk.Style()
+            style.configure("Treeview", rowheight=150)
+
+            # Scrollbar
+            vsb = ttk.Scrollbar(self.results_frame_controls, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=vsb.set)
+
+            # Image references
+            self.image_references = []
+
+            # Insert data into treeview
+            for index, monolayer in enumerate(monolayers):
+                img_array = monolayer.image
+                if img_array.shape[2] == 4:
+                    img = Image.fromarray(cv2.cvtColor(img_array, cv2.COLOR_BGRA2RGBA))
+                else:
+                    img = Image.fromarray(cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB))
+                img = img.resize((140, 140), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                self.image_references.append(photo)
+
+                tree.insert("", "end", image=photo, values=(
+                    f"{monolayer.area_um:.2f}",
+                    f"{monolayer.position}",
+                    f"{monolayer.smoothed_entropy:.2f}",
+                    f"{monolayer.total_variation_norm:.2f}",
+                    f"{monolayer.local_intensity_variance:.2f}",
+                    f"{monolayer.contrast_to_noise_ratio:.2f}",
+                    f"{monolayer.skewness:.2f}",
+                    index
+                ))
+
+            # Selection event
+            def on_item_selected(event):
+                selected_item = tree.selection()[0]
+                monolayer_index = int(tree.item(selected_item, 'values')[7])
+                monolayer = monolayers[monolayer_index]
+                move(self.stage_controller, image_to_stage(monolayer.position, config.start_pos), wait=False)
+                print(f"Selected monolayer at index {monolayer_index}, position {monolayer.position}")
+
+            tree.bind('<<TreeviewSelect>>', on_item_selected)
+            tree.grid(row=0, column=0, sticky='nsew')
+            vsb.grid(row=0, column=1, sticky='ns')
+
+            self.results_frame_controls.grid_rowconfigure(0, weight=1)
+            self.results_frame_controls.grid_columnconfigure(0, weight=1)
 
 
     def init_position_labels(self):
@@ -1049,47 +1101,63 @@ class GUI:
             text="Enter Positions (nm):",
             bg=config.THEME_COLOR,
             fg=config.TEXT_COLOR,
-            font=config.HEADING_FONT
+            font=config.LABEL_FONT
         )
-        self.position_entry_label.grid(row=3, column=0, pady=10, sticky='w')
-
-        # Calibration tab focus control label
-        self.focus_control_label = tk.Label(
-            self.calibration_frame_controls,
-            text="Focus Control:",
-            bg=config.THEME_COLOR,
-            fg=config.TEXT_COLOR,
-            font=config.HEADING_FONT
-        )
-        self.focus_control_label.grid(row=5, column=0, pady=10, sticky='w', columnspan=2)
+        self.position_entry_label.grid(row=16, column=0, pady=(10, 0), sticky='w')
 
         self.create_position_entries()
         self.create_main_frame_buttons()
         self.create_calibration_controls()
 
-    def create_position_entries(self):
-        """Create position entry fields for X, Y, and Z axes."""
-        self.position_entry_x = tk.Entry(self.main_frame_controls, font=config.LABEL_FONT)
-        self.position_entry_x.grid(row=4, column=0, pady=10, sticky='w')
-        self.position_entry_y = tk.Entry(self.main_frame_controls, font=config.LABEL_FONT)
-        self.position_entry_y.grid(row=4, column=1, pady=10, sticky='w')
-        self.position_entry_z = tk.Entry(self.calibration_frame_controls, font=config.LABEL_FONT)
-        self.position_entry_z.grid(row=4, column=1, pady=10, sticky='w')
 
-        self.position_entry_x.bind('<Return>', lambda event, type="XY": self.submit_entries(type))
-        self.position_entry_y.bind('<Return>', lambda event, type="XY": self.submit_entries(type))
-        self.position_entry_z.bind('<Return>', lambda event, type="Z": self.submit_entries(type))
+    def create_position_entries(self):
+        """Create position entry fields for X, Y, and Z axes, with labels and even spacing."""
+        # Create a frame to hold the entries and labels
+        position_entry_frame = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR)
+        position_entry_frame.grid(row=17, column=0, pady=(5, 10), padx=10, sticky='w')
+
+        # Define labels and entries for X, Y, Z
+        axes = ['X', 'Y', 'Z']
+        self.position_entries = {}  # Dictionary to hold entries
+
+        for i, axis in enumerate(axes):
+            # Create a sub-frame for each axis to manage alignment
+            axis_frame = tk.Frame(position_entry_frame, bg=config.THEME_COLOR)
+            axis_frame.pack(side=tk.LEFT, padx=5)
+
+            # Create label
+            label = tk.Label(
+                axis_frame,
+                text=f"{axis}:",
+                bg=config.THEME_COLOR,
+                fg=config.TEXT_COLOR,
+                font=config.LABEL_FONT
+            )
+            label.pack(side=tk.TOP, anchor='w')
+
+            # Create entry
+            entry = tk.Entry(axis_frame, font=config.LABEL_FONT, width=10)
+            entry.pack(side=tk.TOP, pady=2)
+            entry.bind('<Return>', lambda event, axis=axis: self.submit_entry(event, axis))
+
+            # Store entry in dictionary
+            self.position_entries[axis] = entry
+
+        # Clear text in entries when run
+        for entry in self.position_entries.values():
+            entry.delete(0, tk.END)
+
 
     def create_main_frame_buttons(self):
         """Create buttons in the main frame."""
         self.main_frame_controls_position = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR, padx=25)
-        self.main_frame_controls_position.grid(row=5, sticky='w', pady=30)
+        self.main_frame_controls_position.grid(row=0, sticky='w', pady=30)
 
     def create_calibration_controls(self):
         """Create the calibration controls including navigation buttons with equal size."""
         # Insert a spacer frame to add a gap above the move controls
         spacer_frame = tk.Frame(self.main_frame_controls, height=20, bg=config.THEME_COLOR)
-        spacer_frame.grid(row=12, column=0, columnspan=4)
+        spacer_frame.grid(row=12, column=0, sticky='ew')
 
         # Label for Move Controls
         move_controls_label = tk.Label(
@@ -1097,19 +1165,22 @@ class GUI:
             text="Move Controls",
             bg=config.THEME_COLOR,
             fg=config.TEXT_COLOR,
-            font=config.LABEL_FONT
+            font=config.HEADING_FONT
         )
-        move_controls_label.grid(row=13, column=0, pady=10, columnspan=2, sticky='w')
+        move_controls_label.grid(row=13, column=0, pady=(10, 0), sticky='w')
 
         # Create a frame for the navigation and focus buttons
         navigation_frame = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR)
-        navigation_frame.grid(row=14, column=0, columnspan=4, rowspan=3, padx=10, pady=10, sticky='nsew')
+        navigation_frame.grid(row=14, column=0, padx=10, pady=10, sticky='nsew')
 
-        # Configure the grid within navigation_frame (4 columns to include focus buttons)
-        for col in range(4):
-            navigation_frame.columnconfigure(col, weight=1, uniform='col')
+        # Limit the width of the navigation_frame
+        navigation_frame.config(width=200)
+
+        # Configure the grid within navigation_frame (3 columns for navigation buttons)
+        for col in range(3):
+            navigation_frame.columnconfigure(col, weight=1)
         for row in range(3):
-            navigation_frame.rowconfigure(row, weight=1, uniform='row')
+            navigation_frame.rowconfigure(row, weight=1)
 
         # Navigation buttons positions
         navigation_buttons = [
@@ -1117,12 +1188,6 @@ class GUI:
             ("Left", (1, 0), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST / 2)], stages=(4,), wait=False)),
             ("Right", (1, 2), lambda: move_relative(self.stage_controller, pos=[int(config.DIST / 2)], stages=(4,), wait=False)),
             ("Down", (2, 1), lambda: move_relative(self.stage_controller, pos=[int(config.DIST / 2)], stages=(5,), wait=False)),
-        ]
-
-        # Focus buttons positions (placed in their own column)
-        focus_buttons = [
-            ("Focus +", (0, 3), lambda: move_relative(self.stage_controller, pos=[10000], stages=(6,), wait=False)),
-            ("Focus -", (2, 3), lambda: move_relative(self.stage_controller, pos=[-10000], stages=(6,), wait=False)),
         ]
 
         # Create navigation buttons with equal size
@@ -1133,55 +1198,34 @@ class GUI:
                 command=cmd,
                 bg=config.BUTTON_COLOR,
                 fg=config.TEXT_COLOR,
-                font=config.BUTTON_FONT,
-                width=5,    # Adjust width for smaller size
-                height=2    # Adjust height for square shape
+                font=config.BUTTON_FONT
             )
             button.grid(row=row, column=col, padx=2, pady=2, sticky='nsew')
 
-        # Create focus buttons in their own column
-        for text, (row, col), cmd in focus_buttons:
-            # Ensure the focus button column is configured
-            navigation_frame.columnconfigure(col, weight=1, uniform='col')
+        # Focus buttons positions (placed below the navigation buttons)
+        focus_frame = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR)
+        focus_frame.grid(row=15, column=0, padx=10, pady=(0, 10), sticky='nsew')
+
+        # Configure the grid within focus_frame
+        focus_frame.columnconfigure(0, weight=1)
+        focus_frame.columnconfigure(1, weight=1)
+
+        focus_buttons = [
+            ("Focus +", 0, lambda: move_relative(self.stage_controller, pos=[10000], stages=(6,), wait=False)),
+            ("Focus -", 1, lambda: move_relative(self.stage_controller, pos=[-10000], stages=(6,), wait=False)),
+        ]
+
+        for text, col, cmd in focus_buttons:
             button = tk.Button(
-                navigation_frame,
+                focus_frame,
                 text=text,
                 command=cmd,
                 bg=config.BUTTON_COLOR,
                 fg=config.TEXT_COLOR,
-                font=config.BUTTON_FONT,
-                width=3,
-                height=2
+                font=config.BUTTON_FONT
             )
-            button.grid(row=row, column=col, padx=2, pady=2, sticky='nsew')
+            button.grid(row=0, column=col, padx=2, pady=2, sticky='nsew')
 
-        # Optional: Adjust the middle row height if needed
-        navigation_frame.rowconfigure(1, weight=1, uniform='row')
-
-    def create_sliders(self):
-        """Create sliders for the calibration tab."""
-        slider_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
-        slider_frame.grid(row=10, column=0, columnspan=2, padx=10, pady=10, sticky='nsew')
-
-        slider_focus_label = tk.Label(
-            slider_frame,
-            text="Focus Slider:",
-            bg=config.THEME_COLOR,
-            fg=config.TEXT_COLOR,
-            font=config.LABEL_FONT
-        )
-        slider_focus_label.grid(row=0, column=0, pady=10, sticky='w')
-
-        slider_focus = tk.Scale(
-            slider_frame,
-            from_=100000,
-            to=1000000,
-            orient='vertical',
-            command=lambda event: self.on_focus_slider_change(event),
-            bg=config.THEME_COLOR,
-            fg=config.TEXT_COLOR
-        )
-        slider_focus.grid(row=1, column=0, padx=20, pady=10, sticky='nsew')
 
     def create_rotation_wheel(self):
         """Create a 360-degree rotation wheel in the calibration tab."""
@@ -1255,25 +1299,37 @@ class GUI:
         self.angle_entry.insert(0, f"{angle:.0f}")
         self.image_acquisition_thread._rotation_angle = float(self.angle_entry.get())
 
-    def submit_entries(self, type="XY"):
-        """Submit the position entries and initiate movement."""
-        if type == "XY":
-            enter_x = self.position_entry_x.get().strip()
-            enter_y = self.position_entry_y.get().strip()
-            if self.validate_entries(enter_x, enter_y):
+    def submit_entry(self, event, axis):
+        """Submit the position entry for a single axis and initiate movement."""
+        entry_value = self.position_entries[axis].get().strip()
+        if self.validate_entries(entry_value):
+            position = int(entry_value)
+            if axis in ['X', 'Y']:
+                # Map axis to stage number
+                stage = 4 if axis == 'X' else 5
                 threading.Thread(
                     target=self.move_and_update_progress,
-                    args=([int(enter_x), int(enter_y)],),
+                    args=([position], (stage,)),
                     daemon=True
                 ).start()
-        elif type == "Z":
-            enter_z = self.position_entry_z.get().strip()
-            if self.validate_entries(enter_z):
+            elif axis == 'Z':
                 threading.Thread(
                     target=self.move_and_update_progress,
-                    args=([int(enter_z)], (6,)),
+                    args=([position], (6,)),
                     daemon=True
                 ).start()
+            # Clear the entry after submission
+            self.position_entries[axis].delete(0, tk.END)
+
+    def validate_entries(self, *entries):
+        """Validate that the entries are integers."""
+        for entry in entries:
+            try:
+                int(entry)
+            except ValueError:
+                messagebox.showerror("Input Error", "All fields must be integers!")
+                return False
+        return True
 
     def move_and_update_progress(self, pos, stages=(4, 5)):
         """Move the stage to a position and update the progress bar during the operation."""
@@ -1327,7 +1383,7 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     
     # Disable buttons in the main tab
     gui.toggle_buttons(gui.main_frame_controls ,'disabled')
-    gui.display_image_on_results_tab(Image.open("placeholder.webp"))
+    gui.display_results_tab(Image.open("placeholder.webp"))
 
     # Start stitching thread
     stitching_thread = threading.Thread(target=stitch_and_display_images, args=(gui, frame_queue, start, end, stitched_view_canvas))

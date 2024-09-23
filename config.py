@@ -1,6 +1,6 @@
 CONFIRMATION_BITS = (2147484928, 2147484930, 2147483904)
 CAMERA_DIMS = [2448, 2048] 
-CAMERA_PROPERTIES = {"gain": 125, "exposure": 250000}
+CAMERA_PROPERTIES = {"gain": 300, "exposure": 350000}
 NM_PER_PX = 171.6
 IMAGE_OVERLAP = 0.05
 MONOLAYER_CROP_PADDING = 10
@@ -20,6 +20,7 @@ FONT_SIZE = 10
 HEADING_FONT = (FONT_FAMILY, 12, "bold")
 LABEL_FONT = (FONT_FAMILY, 10)
 BUTTON_FONT = (FONT_FAMILY, 10, "bold")
+PROPORTIONALITY_CONSTANT = 500
 
 import torch
 ACCEL_DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -28,4 +29,6 @@ ACCEL_DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 start_pos = [0, 0]  
 end_pos = [0, 0] 
+corner1 = [0, 0]
+corner2 = [0, 0]
 current_image = 0
