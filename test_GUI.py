@@ -5,8 +5,9 @@ import random
 import math
 from PIL import Image, ImageDraw, ImageTk
 import numpy as np
+from matplotlib.backends.backend_tkagg import (
+    FigureCanvasTkAgg, NavigationToolbar2Tk)
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 '''
 Class for running tkinter root
@@ -19,11 +20,13 @@ class ImageDisplay:
         # Initialize the main window
         self.root = root
         self.root.title("Image display and rolling a die")
+        
+        # This/these are not needed anymore -->
         # self.root.call('tk', 'scaling', 3)  # Adjust this scaling factor as needed
 
         # Set a global font for the entire app
         default_font = tkFont.nametofont("TkDefaultFont")
-        default_font.configure(size=24)  # Set font size here
+        default_font.configure(size=12)  # Set font size here
 
         # Create a Notebook (tab container)
         notebook = ttk.Notebook(self.root)
@@ -53,13 +56,19 @@ class ImageDisplay:
         label2 = tk.Label(self.tab2, text="This is Tab 2", font=("Arial", 16))
         label2.pack(pady=20)
 
+        # Frame configs
         self.root.columnconfigure(0, minsize=150)
         self.root.rowconfigure([0, 1], minsize=50)
 
+        # Buttons for the second tab
         self.btn_roll = tk.Button(self.tab2, text = "Roll!", command = self.randNum)
         self.btn_roll.pack()
         self.lbl_roll = tk.Label(self.tab2)
         self.lbl_roll.pack()
+        self.cat_button = tk.Button(self.tab2, text="~ Magic button ~", command=self.show_cat_image)
+        self.cat_button.pack(pady=20)
+        self.cat_canvas = tk.Canvas(self.tab2, width=100, height=100)
+        self.cat_canvas.pack(pady=20)
 
         # Create an entry widget
         self.entry = tk.Entry(self.root)
@@ -82,10 +91,7 @@ class ImageDisplay:
         self.dummy_var1 = tk.DoubleVar(value=0)
         self.dummy_var2 = tk.DoubleVar(value=0)
 
-        # Data for histogram
-        self.x = np.random.randn(1000)
-
-        self.plot_histogram(self.tab4)
+        self.plot_histograms(self.tab4)
 
         self.update_image()
 
@@ -208,29 +214,40 @@ class ImageDisplay:
         self.angle_entry.insert(0, "0")
         self.angle_entry.bind("<Return>", self.set_angle_from_entry)
 
-    def plot_histogram(self, parent_frame):
-        # Create a figure and axis for the histogram
-        fig, ax = plt.subplots(figsize=(5,4), dpi=100)
+    def plot_histograms(self, parent_frame):
+        # Data for histogram
+        x = np.random.randn(1000)
+        y = 3 + np.random.randn(500)
+        z = np.random.poisson(5, 1000)
 
-        # Plot the histogram for data in x
-        ax.hist(self.x, bins=30, color='blue', edgecolor='black')
+        hist_frame = ttk.Frame(parent_frame)
+        hist_frame.grid(row=0, column=0, sticky=tk.NSEW)
+
+        # Create a figure and axis for the histogram
+        fig, axes = plt.subplots(2, 3, figsize=(15, 12))
+        fig.tight_layout(pad=2.5)
+
+        # Embed the figure into the Tkinter window
+        canvas = FigureCanvasTkAgg(fig, master=hist_frame)
+        canvas.get_tk_widget().grid(row=0, column=0, sticky=tk.NSEW)
+        canvas.draw()
 
         # Add labels and title
-        # ax.set_title('Histogram of Data', fontsize=16)
-        # ax.set_xlabel('Value', fontsize=14)
-        # ax.set_ylabel('Frequency', fontsize=14)
+        fig.suptitle('Distributions of monolayer statistics', fontsize=18)
+        plt.subplots_adjust(top=0.9)
+        plt.tick_params(axis='both', which='major', labelsize=12)
+        x_labels = ['Area (um^2)', 'Entropy', 'TV Norm', 'Local Intensity Variation', 'CNR', 'Skewness']
+        data = [[x], [y], [z], [x], [y], [z]]
+        for i, ax in enumerate(axes.flat):
+            # Plot the histogram for data in x - change to Area (1), Entropy (2), TV Norm (3), Local Internsity Variation (4), CNR (5), Skewness (6)
+            ax.hist(data[i], bins=30, color='blue', edgecolor='black')
+            ax.set_xlabel(x_labels[i])
 
-        ax.set_title('Histogram of Data')
-        ax.set_xlabel('Value')
-        ax.set_ylabel('Frequency')
-
-        # Set font size for tick labels
-        ax.tick_params(axis='both', which='major', labelsize=12)
-
-        # Embed the plot into Tkinter
-        canvas = FigureCanvasTkAgg(fig, master=parent_frame)  # A canvas widget for matplotlib
-        canvas.draw()
-        canvas.get_tk_widget().grid(row=0, column=0)
+        # Create a toolbar for interactivity (zoom, pan, save, etc.)
+        toolbar_frame = ttk.Frame(parent_frame)  # Create a separate frame for the toolbar
+        toolbar_frame.grid(row=1, column=0, sticky=tk.W)  # Align toolbar to the left
+        toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
+        toolbar.update()
 
     def draw_anti_aliased_wheel(self):
         # Draw the circle for the wheel with anti-aliasing
@@ -286,6 +303,18 @@ class ImageDisplay:
     def get_entry_value(self, event=None):
         entered_text = self.entry.get()
         print(f"You entered: {entered_text}")
+
+    def show_cat_image(self):
+        # Load the cat image
+        cat_image = Image.open("Images/test_image1.jpg")  # Replace with your cat image path
+        cat_image = cat_image.resize((100, 100))  # Resize the image if needed
+        cat_photo = ImageTk.PhotoImage(cat_image)
+
+        self.cat_button.destroy()
+
+        self.cat_canvas.delete("all")
+        self.cat_canvas.create_image(0, 0, anchor=tk.NW, image=cat_photo)
+        self.cat_canvas.image = cat_photo  # Keep a reference to avoid garbage collection
 
 # Start the Tkinter event loop
 if __name__ == "__main__":
