@@ -19,11 +19,11 @@ class ImageDisplay:
         # Initialize the main window
         self.root = root
         self.root.title("Image display and rolling a die")
-        self.root.call('tk', 'scaling', 3)  # Adjust this scaling factor as needed
+        # self.root.call('tk', 'scaling', 3)  # Adjust this scaling factor as needed
 
-        # # Set a global font for the entire app
-        # default_font = tkFont.nametofont("TkDefaultFont")
-        # default_font.configure(size=24)  # Set font size here
+        # Set a global font for the entire app
+        default_font = tkFont.nametofont("TkDefaultFont")
+        default_font.configure(size=24)  # Set font size here
 
         # Create a Notebook (tab container)
         notebook = ttk.Notebook(self.root)
@@ -216,9 +216,13 @@ class ImageDisplay:
         ax.hist(self.x, bins=30, color='blue', edgecolor='black')
 
         # Add labels and title
-        ax.set_title('Histogram of Data', fontsize=16)
-        ax.set_xlabel('Value', fontsize=14)
-        ax.set_ylabel('Frequency', fontsize=14)
+        # ax.set_title('Histogram of Data', fontsize=16)
+        # ax.set_xlabel('Value', fontsize=14)
+        # ax.set_ylabel('Frequency', fontsize=14)
+
+        ax.set_title('Histogram of Data')
+        ax.set_xlabel('Value')
+        ax.set_ylabel('Frequency')
 
         # Set font size for tick labels
         ax.tick_params(axis='both', which='major', labelsize=12)
