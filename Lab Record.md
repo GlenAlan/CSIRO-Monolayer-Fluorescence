@@ -176,8 +176,9 @@ We also performed our first test of the software on a real sample. This detectio
 - [X] Add camera parameter adjustment (done on backend, needs GUI)
 - [ ] Add a focus routine (planar)
 - [X] List the located monolayers and stats and add an option to take you to a specific one (done on backend, needs GUI)
-- [ ] Different lens calibration
-- [ ] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
+- [X] Different lens calibration
+- [X] Rerun Results Processing Button
+- [X] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
 - [ ] Allow zoom on the results image (and click to go to location)
 - [ ] Add more instructions to the GUI and redo layout as needed
 - [ ] Refine quality parameters
