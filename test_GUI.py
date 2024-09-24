@@ -449,7 +449,7 @@ class ImageDisplay:
         # Bind mouse movement on the full image area to trigger zooming
         self.image_canvas.bind("<Motion>", self.update_zoom_on_mouse_move)
 
-        self.plot_histograms(self.tab4)
+        # self.plot_histograms(self.tab4)
 
         self.create_control_buttons()
 
