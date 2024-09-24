@@ -1449,8 +1449,6 @@ class GUI:
         except ValueError:
             messagebox.showerror("Input Error", "Exposure must be a number!")
 
-    import threading
-
     def auto_camera_settings(self):
         """Auto camera calibration to run in a separate thread."""
         def run_auto_exposure():
@@ -1768,6 +1766,7 @@ if __name__ == "__main__":
             print("App initializing...")
             root = tk.Tk()
             GUI_main = GUI(root, camera)
+            root.after(1000, GUI_main.auto_camera_settings)
 
             print("App starting")
             root.mainloop()
