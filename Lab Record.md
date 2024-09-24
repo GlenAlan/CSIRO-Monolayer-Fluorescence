@@ -170,6 +170,35 @@ Today we spent most of the day working on the lab report. We focused on the rela
 We also performed our first test of the software on a real sample. This detection went quite well apart from needing to adjust values in the code to account for a different lens since we have not yet included this in the GUI. The code sucessfully scaned the section of the sample and identified several monolayers incluidng he main one of interest.
 
 
+# 23/09/24
+
+### Lachlan
+
+The very important cat pop up image was missing from the main GUI tab so that was first on the agenda for the week. To analyse the quality of the monolayers, certain statistics are use for each identified monolayer from the algorithm. I created histograms of the obtained statistics to display the distribution of area and quality of the monolayers for analysis. It was relatively easy to integrate matplotlib into tkinter, however, I kept running into a text scaling issue where matplotlib would change the global text fontsize. This was difficult to resolve and whilst I was able to fix it several times, it kept creeping back. It could not be implemented into the main GUI without having to entirely rewrite the code.
+
+
+### Glen
+- Redid layout for live camera
+- Added camera ajustment boxes
+- Added Results Treeview and go to
+- Redid much of the layout
+- Made the goto positions work for X, Y, Z individually
+
+
+# 24/09/2024
+
+### Lachlan
+
+Calibration and image viewing were the focus for today. Since different monolayers could produce different fluorescence colouring, calibration for monolayer post processing was required. I embedded a colour picker for the expected monolayer fluorescence to be used for post processing. This was done in the test GUI before being implemented into the main GUI. I also created a scalable and pannable image in the test GUI which will allow the final stitched image to be zoomed and panned to the desired locations. One issue with the zoomed image is the sheer size of the file. Since the resolution is so high, an image pyramid was created to reduce lag.
+
+
+### Glen
+- Added automatic exposure
+- Refined the Monolayer Colour detection
+- Refromatted calibration tab
+- Enabled rerunning of post processing
+- Added lens calibration and made that nicer.
+
 ### Remainder of the placement
 
 - [X] Add cat in a Santa hat
@@ -190,16 +219,3 @@ We also performed our first test of the software on a real sample. This detectio
 - [ ] Add automatic focus adjustment (every frame)
 - [ ] Give the window a logo and package it into a .exe if possible
 - [ ] Select Camera
-
-
-# 23/09/24
-
-### Lachlan
-
-The very important cat pop up image was missing from the main GUI tab so that was first on the agenda for the week. To analyse the quality of the monolayers, certain statistics are use for each identified monolayer from the algorithm. I created histograms of the obtained statistics to display the distribution of area and quality of the monolayers for analysis. It was relatively easy to integrate matplotlib into tkinter, however, I kept running into a text scaling issue where matplotlib would change the global text fontsize. This was difficult to resolve and whilst I was able to fix it several times, it kept creeping back. It could not be implemented into the main GUI without having to entirely rewrite the code.
-
-# 24/09/2024
-
-### Lachlan
-
-Calibration and image viewing were the focus for today. Since different monolayers could produce different fluorescence colouring, calibration for monolayer post processing was required. I embedded a colour picker for the expected monolayer fluorescence to be used for post processing. This was done in the test GUI before being implemented into the main GUI. I also created a scalable and pannable image in the test GUI which will allow the final stitched image to be zoomed and panned to the desired locations. One issue with the zoomed image is the sheer size of the file. Since the resolution is so high, an image pyramid was created to reduce lag.
