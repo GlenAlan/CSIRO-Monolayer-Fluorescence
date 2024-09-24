@@ -59,15 +59,19 @@ class LiveViewCanvas(tk.Canvas):
             self.after(config.UPDATE_DELAY, self._display_image)
             return
 
+        image = None
         try:
-            image = self.image_queue.get_nowait()
-            
-            # Resize image to match canvas size while maintaining aspect ratio
-            self.update_image_display(image)
-        except queue.Empty:
-            pass
+            # Retrieve all available images and use the latest one
+            while True:
+                try:
+                    image = self.image_queue.get_nowait()
+                except queue.Empty:
+                    break
         except Exception as e:
-            print(f"Error updating image: {e}")
+            print(f"Error retrieving image from queue: {e}")
+
+        if image:
+            self.update_image_display(image)
 
         self.after(config.UPDATE_DELAY, self._display_image)  # Continue updating the image
 
@@ -75,18 +79,27 @@ class LiveViewCanvas(tk.Canvas):
         """Resize image based on canvas size while maintaining aspect ratio."""
         canvas_width = self.winfo_width()
         canvas_height = self.winfo_height()
-        
-        aspect = image.size[0] / image.size[1]
-        
+
+        # Convert PIL Image to OpenCV format
+        image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+        # Calculate aspect ratio
+        aspect = image_cv.shape[1] / image_cv.shape[0]
+
         if canvas_width / aspect < canvas_height:
             new_width = canvas_width
             new_height = int(canvas_width / aspect)
         else:
             new_height = canvas_height
             new_width = int(canvas_height * aspect)
-        
-        image = image.resize((new_width, new_height), Image.LANCZOS)
-        self._image = ImageTk.PhotoImage(master=self, image=image)
+
+        # Resize using OpenCV for speed
+        resized_image = cv2.resize(image_cv, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+
+        # Convert back to PIL Image
+        resized_pil = Image.fromarray(cv2.cvtColor(resized_image, cv2.COLOR_BGR2RGB))
+
+        self._image = ImageTk.PhotoImage(master=self, image=resized_pil)
         self.create_image(0, 0, image=self._image, anchor='nw')
 
     def on_resize(self, event):
@@ -94,10 +107,6 @@ class LiveViewCanvas(tk.Canvas):
         self._image_width = event.width
         self._image_height = event.height
         self._display_image()  # Update display to fit new canvas size
-
-    def set_active(self, active):
-        """Enable or disable image updating based on tab visibility."""
-        self.is_active = active
 
 
 def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
@@ -412,7 +421,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
 
         ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
-        r = random.randint(-4, 4)
+        r = random.randint(-4, 0)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
@@ -630,7 +639,7 @@ class GUI:
         self.image_acquisition_thread = ImageAcquisitionThread(self.camera, rotation_angle=270)
         self.image_acquisition_thread.start()
 
-        self.frame_queue = queue.Queue()
+        self.frame_queue = queue.Queue(maxsize=config.MAX_QUEUE_SIZE)
 
         self.image_references = []
 
@@ -672,7 +681,6 @@ class GUI:
 
         # Create control buttons and other UI elements
         self.create_control_buttons()
-        self.create_rotation_wheel()
 
         # Initialize progress bar and status label
         self.init_progress_bar()
@@ -866,7 +874,7 @@ class GUI:
         self.main_frame_controls.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
 
         # Create stitched view canvas
-        self.stitched_view_canvas = LiveViewCanvas(self.tabs["main"], queue.Queue())
+        self.stitched_view_canvas = LiveViewCanvas(self.tabs["main"], queue.Queue(maxsize=config.MAX_QUEUE_SIZE))
         self.stitched_view_canvas.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
 
         # Configure grid in 'main' tab
@@ -876,7 +884,16 @@ class GUI:
 
         # Calibration Tab Layout
         self.calibration_frame_controls = tk.Frame(self.tabs["calibration"], bg=config.THEME_COLOR)
-        self.calibration_frame_controls.pack(fill="both", expand=True, padx=10, pady=10)
+        self.calibration_frame_controls.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
+
+        self.calibration_frame_controls.columnconfigure(0, weight=1)
+        self.calibration_frame_controls.rowconfigure(0, weight=1)
+
+        # Now create gain and exposure controls using grid layout
+        self.create_gain_exposure_controls()
+
+        # Create rotation wheel
+        self.create_rotation_wheel()
 
         # Results Tab Layout
         self.results_frame_image = tk.Canvas(self.tabs["results"], bg=config.THEME_COLOR, highlightthickness=0)
@@ -1106,11 +1123,6 @@ class GUI:
         self.root.after(config.POSITION_UPDATE_INTERVAL, self.update_positions)
 
 
-    def stop_image_updates(self):
-        """Stop image updates when not on the main or calibration tabs."""
-        self.main_frame_image.set_active(False)
-        self.calibration_frame_image.set_active(False)
-
     def create_control_buttons(self):
         """Create control buttons and labels for the main and calibration tabs."""
         # Main tab position entry label
@@ -1276,11 +1288,162 @@ class GUI:
             )
             button.grid(row=0, column=col, padx=2, pady=2, sticky='nsew')
 
+    def create_gain_exposure_controls(self):
+        """Create Gain and Exposure entry boxes and AutoExpose button in the calibration tab."""
+
+        # Create a frame to hold Gain and Exposure controls
+        gain_exposure_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
+        gain_exposure_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky='nsew')
+
+        # Configure grid in gain_exposure_frame
+        gain_exposure_frame.columnconfigure(0, weight=1)
+        gain_exposure_frame.columnconfigure(1, weight=1)
+        gain_exposure_frame.columnconfigure(2, weight=1)
+
+        # Gain Label and Entry
+        gain_label = tk.Label(
+            gain_exposure_frame,
+            text="Gain: (dB)",
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
+        gain_label.grid(row=0, column=0, padx=5, pady=5, sticky='e')
+
+        self.gain_entry = tk.Entry(
+            gain_exposure_frame,
+            font=config.LABEL_FONT,
+            width=10
+        )
+        self.gain_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.gain_entry.insert(0, str(config.CAMERA_PROPERTIES['gain']/10))
+        self.gain_entry.bind('<Return>', self.update_gain)
+
+        # Exposure Label and Entry
+        exposure_label = tk.Label(
+            gain_exposure_frame,
+            text="Exposure: (ms)",
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
+        exposure_label.grid(row=1, column=0, padx=5, pady=5, sticky='e')
+
+        self.exposure_entry = tk.Entry(
+            gain_exposure_frame,
+            font=config.LABEL_FONT,
+            width=10
+        )
+        self.exposure_entry.grid(row=1, column=1, padx=5, pady=5)
+        self.exposure_entry.insert(0, str(config.CAMERA_PROPERTIES['exposure']/1000))
+        self.exposure_entry.bind('<Return>', self.update_exposure)
+
+        # AutoExpose Button
+        self.auto_expose_button = tk.Button(
+            gain_exposure_frame,
+            text="AutoExpose",
+            command=self.auto_camera_settings,
+            bg=config.BUTTON_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.BUTTON_FONT
+        )
+        self.auto_expose_button.grid(row=0, column=2, rowspan=2, padx=10, pady=5, sticky='ns')
+
+
+    def update_gain(self, event=None):
+        """Update the gain value from the entry box."""
+        try:
+            gain_value = float(self.gain_entry.get())
+            if gain_value < 0 or gain_value > 48:
+                gain_value = min(max(0, gain_value), 48)
+                self.gain_entry.delete(0, tk.END)
+                self.gain_entry.insert(0, str(gain_value))
+            config.CAMERA_PROPERTIES['gain'] = int(gain_value*10)
+            camera.gain = config.CAMERA_PROPERTIES["gain"]
+            camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
+
+            print(f"Gain updated to: {gain_value}")
+        except ValueError:
+            messagebox.showerror("Input Error", "Gain must be a number!")
+
+    def update_exposure(self, event=None):
+        """Update the exposure value from the entry box."""
+        try:
+            exposure_value = float(self.exposure_entry.get())
+            if exposure_value < 0 or exposure_value > 30000:
+                exposure_value = min(max(0, exposure_value), 30000)
+                self.exposure_entry.delete(0, tk.END)
+                self.exposure_entry.insert(0, str(exposure_value))
+            config.CAMERA_PROPERTIES['exposure'] = int(exposure_value*1000)
+            camera.gain = config.CAMERA_PROPERTIES["gain"]
+            camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
+            
+            print(f"Exposure updated to: {exposure_value}")
+        except ValueError:
+            messagebox.showerror("Input Error", "Exposure must be a number!")
+
+    import threading
+
+    def auto_camera_settings(self):
+        """Auto camera calibration to run in a separate thread."""
+        def run_auto_exposure():
+            """Threaded auto-exposure function to adjust gain and exposure."""
+            # Disable the button while auto-calibration is running
+            self.auto_expose_button.config(state='disabled')
+
+            test_gain, test_exposure = 100, 50000
+            camera.gain = int(test_gain)
+            camera.exposure_time_us = int(test_exposure)
+            time.sleep(2*test_exposure/1e6)
+            for i in range(3):
+                latest_frame = np.array(self.image_acquisition_thread._image_queue.get(max(int(test_exposure/1e3), 1000)))
+            average_intensity = latest_frame.mean()
+            
+            while not (config.BRIGHTNESS_RANGE[0] <= average_intensity <= config.BRIGHTNESS_RANGE[1]):
+                delta_intensity = (config.BRIGHTNESS_RANGE[0] + config.BRIGHTNESS_RANGE[1]) / 2 - average_intensity
+                
+                if 1 < test_gain < 350:
+                    test_gain += delta_intensity/10
+                    test_gain = min(max(1, test_gain), 350)
+                else:
+                    if delta_intensity > 0:
+                        test_exposure *= 1.99
+                    else:
+                        test_exposure /= 2.01
+                    test_exposure = min(max(0, test_exposure), 30000000)
+
+                camera.gain = int(test_gain)
+                camera.exposure_time_us = int(test_exposure)
+
+                # Get the next frame and update the average intensity
+                time.sleep(2*test_exposure/1e6)
+                latest_frame = np.array(self.image_acquisition_thread._image_queue.get(max(int(test_exposure/1e3), 1000)))
+                average_intensity = latest_frame.mean()
+                print(average_intensity)
+                print(f"Gain: {test_gain}, Exposure: {test_exposure}")
+
+            # Update config with final gain and exposure values
+            config.CAMERA_PROPERTIES['gain'] = int(test_gain)
+            config.CAMERA_PROPERTIES['exposure'] = int(test_exposure)
+
+            # Update GUI entries
+            self.gain_entry.delete(0, tk.END)
+            self.gain_entry.insert(0, str(config.CAMERA_PROPERTIES['gain'] / 10))
+            self.exposure_entry.delete(0, tk.END)
+            self.exposure_entry.insert(0, str(config.CAMERA_PROPERTIES['exposure'] / 1000))
+
+            # Re-enable the button after the process is complete
+            self.auto_expose_button.config(state='normal')
+
+        # Start the auto calibration in a separate thread
+        threading.Thread(target=run_auto_exposure, daemon=True).start()
+
+
 
     def create_rotation_wheel(self):
         """Create a 360-degree rotation wheel in the calibration tab."""
         wheel_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
-        wheel_frame.grid(row=11, column=0, columnspan=2, padx=20, pady=20, sticky='nsew')
+        wheel_frame.grid(row=1, column=0, columnspan=2, padx=20, pady=20, sticky='nsew')
 
         rotation_wheel_label = tk.Label(
             self.calibration_frame_controls,
@@ -1289,10 +1452,11 @@ class GUI:
             foreground=config.TEXT_COLOR,
             font=config.LABEL_FONT
         )
-        rotation_wheel_label.grid(row=12, column=0, pady=10, columnspan=2)
+        rotation_wheel_label.grid(row=2, column=0, pady=10, columnspan=2)
 
+        # Use grid instead of pack for the canvas
         self.canvas = tk.Canvas(wheel_frame, width=200, height=200, bg=config.THEME_COLOR, highlightthickness=0)
-        self.canvas.pack()
+        self.canvas.grid(row=0, column=0, padx=10, pady=10)
 
         self.wheel_radius = 80
         self.wheel_center_x = 100
@@ -1314,13 +1478,16 @@ class GUI:
         )
         self.canvas.bind("<B1-Motion>", self.update_wheel)
 
+        # Use grid instead of pack for the angle entry
         self.angle_entry = tk.Entry(wheel_frame, width=5, font=config.LABEL_FONT)
-        self.angle_entry.pack(pady=10)
+        self.angle_entry.grid(row=1, column=0, pady=10)
         self.angle_entry.insert(0, "270")
-        self.angle_entry.bind("<Return>", self.set_angle_from_entry)
+        self.angle_entry.bind('<Return>', self.set_angle_from_entry)
+
         end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(270))
         end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(270))
         self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
+
 
     def on_focus_slider_change(self, event):
         """Handle changes in the focus slider."""
