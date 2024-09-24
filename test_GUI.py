@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, filedialog
 from tkinter import font as tkFont
+from tkinter import colorchooser
 import random
 import math
 from PIL import Image, ImageDraw, ImageTk
@@ -8,6 +9,7 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import (
     FigureCanvasTkAgg, NavigationToolbar2Tk)
 import matplotlib.pyplot as plt
+
 
 '''
 Class for running tkinter root
@@ -77,62 +79,113 @@ class ImageDisplay:
         # Bind the Enter key to the entry widget
         self.entry.bind('<Return>', self.get_entry_value)
 
-        # Trying to zoom in on cropped image - First creating a canvas
-        self.image_canvas = tk.Canvas(self.tab1, width = 1400, height = 600)
-        self.image_canvas.pack()
-        # Image handling
-        self.image_path = "Images/test_image4.jpg"
-        self.original_image = Image.open(self.image_path) #Gets the image from file
-        # Initial factors
-        self.zoom_factor = 3
-        self.region = [0, 0, 200, 200]
-
         # Dummy variables
         self.dummy_var1 = tk.DoubleVar(value=0)
         self.dummy_var2 = tk.DoubleVar(value=0)
 
-        self.plot_histograms(self.tab4)
+        ################################## Colour picker
+        color_frame = tk.Frame(self.tab1)
+        color_frame.pack(pady=10)
+        
+        # Set the default color
+        self.color_code = "#FF4500"  # Default color (reddish-orange)
 
-        self.update_image()
+        # Add a text label to the left
+        self.text_label = tk.Label(color_frame, text="Fluorescence colour picker:")
+        self.text_label.grid(row=0, column=0, padx=10)
+
+        # Create a smaller square label that acts as the color picker with the default color
+        self.color_label = tk.Label(color_frame, bg=self.color_code, width=5, height=2)  # Smaller square
+        self.color_label.grid(row=0, column=1)
+
+        # Bind the label click event to open the color picker
+        self.color_label.bind("<Button-1>", self.pick_color)
+        ##################################
+
+        # Frame configs
+        self.root.columnconfigure(0, minsize=150)
+        self.root.rowconfigure([0, 1], minsize=50)
+
+        # Canvas for displaying images
+        self.image_canvas = tk.Canvas(self.tab1, width=1400, height=600)
+        self.image_canvas.pack()
+
+        # Image handling
+        self.image_path = "Images/test_image4.jpg"  # Replace with your image path
+        self.original_image = Image.open(self.image_path)  # Get the image from file
+
+        # Initial zoom factor and region for zoomed view
+        self.zoom_factor = 3
+        self.region_size = 200  # Size of the region to zoom into
+        self.region = [0,0,200,200]
+
+        # Display the full image on the right and bind mouse motion
+        self.tk_full_image = ImageTk.PhotoImage(self.original_image)
+        self.image_canvas.create_image(650, 0, anchor=tk.NW, image=self.tk_full_image)
+
+        # Bind mouse movement on the full image area to trigger zooming
+        self.image_canvas.bind("<Motion>", self.update_zoom_on_mouse_move)
+
+        # self.plot_histograms(self.tab4)
 
         self.create_control_buttons()
 
         self.create_sliders()
 
         self.create_360_wheel()
-
     '''
     Random number generator for die.
     '''
     def randNum(self):
         self.lbl_roll['text'] = random.randint(1,6)
-    
-    '''
-    Updates the zoomed image. This updates the region of the image and displays it again.
-    It is called once at the start and then whenever the move function is called.
-    '''
-    def update_image(self):
-        self.tk_image = ImageTk.PhotoImage(self.original_image) #Creates image format or something with ImageTk
-        self.image_canvas.create_image(650, 0, anchor=tk.NW, image=self.tk_image) #Displays the image
-        cropped_image = self.original_image.crop(self.region) #crops the image to the pixels desired
+
+    def update_zoom_on_mouse_move(self, event):
+        # Get the mouse position relative to the canvas
+        mouse_x = event.x
+        mouse_y = event.y
+
+        # Adjust the mouse position to be relative to the large image (on the right)
+        image_x = mouse_x - 650  # Since the large image starts at x=650
+        image_y = mouse_y
+
+        # Make sure the mouse is within the bounds of the image
+        if 0 <= image_x < self.original_image.width and 0 <= image_y < self.original_image.height:
+            # Calculate the region to zoom into, centered around the mouse position
+            left = max(0, image_x - self.region_size // 2)
+            top = max(0, image_y - self.region_size // 2)
+            right = min(self.original_image.width, image_x + self.region_size // 2)
+            bottom = min(self.original_image.height, image_y + self.region_size // 2)
+
+             # If the mouse is too close to the right/bottom edges, adjust the left/top to fit the region
+            if right - left < self.region_size:
+                if left == 0:
+                    right = self.region_size
+                else:
+                    left = right - self.region_size
+            if bottom - top < self.region_size:
+                if top == 0:
+                    bottom = self.region_size
+                else:
+                    top = bottom - self.region_size
+            self.region = [left, top, right, bottom]
+
+            # Update the zoomed image on the left
+            self.update_zoomed_image()
+
+    def update_zoomed_image(self):
+        # Crop the image to the selected region
+        cropped_image = self.original_image.crop(self.region)
+        # Resize the cropped image based on the zoom factor
         resized_image = cropped_image.resize(
-                    (int((self.region[2] - self.region[0]) * self.zoom_factor),
-                    int((self.region[3] - self.region[1]) * self.zoom_factor)),
-                    Image.LANCZOS) #resizes it to zoom into the cropped area - not dependent on location, just width and height
-        self.tk_image_zoom = ImageTk.PhotoImage(resized_image)
-        self.image_canvas.create_image(0, 0, anchor = tk.NW, image = self.tk_image_zoom)
+            (int((self.region[2] - self.region[0]) * self.zoom_factor),
+             int((self.region[3] - self.region[1]) * self.zoom_factor)),
+            Image.LANCZOS)
 
-    '''
-    Movement function for button that moves the image in x and y by 50 pixels
-    '''
-    def move(self, dx=0, dy=0):
-        self.region[0] += 50*dx
-        self.region[2] += 50*dx
-        self.region[1] += 50*dy
-        self.region[3] += 50*dy
-        print(self.region)
-        self.update_image()
+        # Display the zoomed-in image on the left side of the canvas
+        self.tk_zoomed_image = ImageTk.PhotoImage(resized_image)
+        self.image_canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_zoomed_image)
 
+    
     '''
     Creates the buttons
     '''
@@ -315,6 +368,20 @@ class ImageDisplay:
         self.cat_canvas.delete("all")
         self.cat_canvas.create_image(0, 0, anchor=tk.NW, image=cat_photo)
         self.cat_canvas.image = cat_photo  # Keep a reference to avoid garbage collection
+
+    
+    ################################## Colour picker
+    def pick_color(self, event):
+        # Open the color picker dialog
+        color_code = colorchooser.askcolor(initialcolor=self.color_code, title="Choose a color")
+
+        # If a color is selected, update the color_code and change the background of the label
+        if color_code[1]:  # Check if a valid color was selected
+            self.color_code = color_code[1]  # Update the color_code with the selected color
+            self.color_label.config(bg=self.color_code)
+    ##################################
+
+
 
 # Start the Tkinter event loop
 if __name__ == "__main__":
