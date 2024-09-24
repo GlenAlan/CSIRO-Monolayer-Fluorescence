@@ -13,8 +13,8 @@ import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor
 
 import tkinter as tk
-from tkinter import ttk, messagebox
-from PIL import Image, ImageTk, ImageDraw
+from tkinter import ttk, messagebox, colorchooser
+from PIL import Image, ImageTk, ImageDraw, ImageColor
 
 import cv2  # OpenCV library for accessing the webcam
 import numpy as np
@@ -288,11 +288,12 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
     stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
     stitched_view_canvas.update_image_display(stitched_image)
 
+    config.canvas = canvas
     post_processing(gui, canvas, start)
 
 def post_processing(gui, canvas, start, contrast=2, threshold=100):
     t1 = time.time()
-    gui.update_progress(95, "Image processing...")
+    gui.root.after(0, lambda: gui.update_progress(95, "Image processing..."))
     print("Post processing...")
 
     downscale_factor = 4
@@ -303,7 +304,10 @@ def post_processing(gui, canvas, start, contrast=2, threshold=100):
 
     # post_image = cv2.blur(post_image, (5, 5)) # Optional pre grayscale blur (downscaling already blurs)
     # Our image is in BGRA format so to convert it to greyscale with a bias for red and a bias against green and blue, we use the following formula:
-    post_image = 1 * post_image[:, :, 2] - 1.0 * post_image[:, :, 1] - 0.0 * post_image[:, :, 0]
+    red, green, blue  = [(c/127)-1 for c in config.MONOLAYER_COLOR]
+    print(f"{red}, {green}, {blue}")
+
+    post_image = red * post_image[:, :, 2] + green * post_image[:, :, 1] + blue * post_image[:, :, 0]
     # Normalize the image to 0-255
     post_image = np.clip(post_image, 0, 255)
     # Convert to uint8
@@ -329,7 +333,7 @@ def post_processing(gui, canvas, start, contrast=2, threshold=100):
     contour_image = canvas.copy()
 
     print("Locating Monolayers...")
-    gui.update_progress(97, "Locating Monolayers...")
+    gui.root.after(0, lambda: gui.update_progress(97, "Locating Monolayers..."))
 
     # Find contours on the downscaled post-processed image
     scaled_contours, _ = cv2.findContours(post_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -356,13 +360,13 @@ def post_processing(gui, canvas, start, contrast=2, threshold=100):
         cx, cy = monolayers[-1].position
         
         # Mark center of the monolayer
-        contour_image = cv2.circle(contour_image, (cx, cy), 5, color=(0, 0, 0, 255), thickness=-1)
+        contour_image = cv2.circle(contour_image, (cx, cy), config.MONOLAYER_DOT_SIZE, color=(0, 0, 0, 255), thickness=-1)
     
     # Draw contours on the original resolution image
-    cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), 5)
+    cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), config.MONOLAYER_OUTLINE_THICKNESS)
     
     # Display the final image with contours
-    gui.update_progress(97, "Saving final images...")
+    gui.root.after(0, lambda: gui.update_progress(97, "Saving final images..."))
     print("Saving image with monolayers...")
     save_image(contour_image, "Images/highlighted_monolayers.png", 5)
     print("Saved!")
@@ -372,7 +376,7 @@ def post_processing(gui, canvas, start, contrast=2, threshold=100):
     monolayers.sort(key=operator.attrgetter('area'))
     monolayers.reverse()
 
-    gui.display_results_tab(Image.fromarray(cv2.cvtColor(scale_down_canvas(contour_image, 10), cv2.COLOR_BGRA2RGBA)), monolayers)
+    gui.root.after(0, lambda: gui.display_results_tab(Image.fromarray(cv2.cvtColor(scale_down_canvas(contour_image, 10), cv2.COLOR_BGRA2RGBA)), monolayers))
 
 
     for i, layer in enumerate(monolayers):
@@ -380,7 +384,7 @@ def post_processing(gui, canvas, start, contrast=2, threshold=100):
         cv2.imwrite(f"Monolayers/{i+1}.png", layer.image)
 
 
-    gui.update_progress(100, "Scan Complete!")
+    gui.root.after(0, lambda: gui.update_progress(100, "Scan Complete!"))
     # while True:
     #     try:
     #         n = int(input("Go To Monolayer: "))-1
@@ -421,12 +425,12 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
 
         ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
-        r = random.randint(-4, 0)
+        r = random.randint(-20, 4)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
         config.current_image += 1
-        gui.update_progress(int(90*config.current_image/num_images), f"Capturing Image {config.current_image} of {num_images}")
+        gui.root.after(0, lambda: gui.update_progress(int(90*config.current_image/num_images), f"Capturing Image {config.current_image} of {num_images}"))
 
         ###################################################################################################################################
 
@@ -470,7 +474,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
 
     print("\nImage capture complete!")
     print("Waiting for image processing to complete...")
-    gui.update_progress(92, "Image stitching...")
+    gui.root.after(0, lambda: gui.update_progress(92, "Image stitching..."))
     frame_queue.put(None)
 
 class Monolayer:
@@ -895,6 +899,8 @@ class GUI:
         # Create rotation wheel
         self.create_rotation_wheel()
 
+        self.create_color_picker()
+
         # Results Tab Layout
         self.results_frame_image = tk.Canvas(self.tabs["results"], bg=config.THEME_COLOR, highlightthickness=0)
         self.results_frame_image.pack(fill="both", expand=True, padx=10, pady=10)
@@ -969,11 +975,11 @@ class GUI:
 
             # Define columns
             columns = ('Area (um^2)', 'Centre', 'Entropy', 'TV Norm', 'Intensity Variance', 'CNR', 'Skewness', 'Index')
-            visible_rows = 4  # Increased number of visible rows for taller Treeview
+            visible_rows = 3 # Increased number of visible rows for taller Treeview
 
             # Create a frame to hold the Treeview and scrollbar
             tree_frame = tk.Frame(self.results_frame_controls, bg=config.THEME_COLOR)
-            tree_frame.grid(row=0, column=0, sticky='nsew')
+            tree_frame.grid(row=2, column=0, sticky='nsew')
 
             # Set a fixed height for the frame
             fixed_height = 750  # Increased height to make Treeview taller
@@ -1083,6 +1089,19 @@ class GUI:
 
             tree.bind('<<TreeviewSelect>>', on_item_selected)
 
+            self.redo_button = tk.Button(
+                self.results_frame_controls,
+                text="Redo output with new config",
+                command=lambda: threading.Thread(
+                    target=post_processing,
+                    args=(self, config.canvas, config.start_pos),
+                    daemon=True
+                ).start(),
+                bg=config.BUTTON_COLOR,
+                fg=config.TEXT_COLOR,
+                font=config.BUTTON_FONT
+            )
+            self.redo_button.grid(row=1, column=0, sticky='w', padx=10, pady=10)
 
     def init_position_labels(self):
         """Initialize position labels for live updates."""
@@ -1138,6 +1157,7 @@ class GUI:
         self.create_position_entries()
         self.create_main_frame_buttons()
         self.create_calibration_controls()
+        self.create_lens_selector()
 
         self.cat_button = tk.Button(
             self.main_frame_controls,
@@ -1349,6 +1369,53 @@ class GUI:
         )
         self.auto_expose_button.grid(row=0, column=2, rowspan=2, padx=10, pady=5, sticky='ns')
 
+    
+    def create_lens_selector(self):
+        """Create Gain and Exposure entry boxes and AutoExpose button in the calibration tab."""
+
+        # Create a frame to hold Gain and Exposure controls
+        lens_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
+        lens_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky='nsew')
+
+        # Configure grid in gain_exposure_frame
+        lens_frame.columnconfigure(0, weight=1)
+        lens_frame.columnconfigure(1, weight=1)
+
+        # Gain Label and Entry
+        lens_label = tk.Label(
+            lens_frame,
+            text="Magnification: ",
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
+        lens_label.grid(row=0, column=0, padx=5, pady=5, sticky='e')
+
+        self.lens_entry = tk.Entry(
+            lens_frame,
+            font=config.LABEL_FONT,
+            width=10
+        )
+        self.lens_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.lens_entry.insert(0, str(config.CAMERA_PROPERTIES['lens']))
+        self.lens_entry.bind('<Return>', self.update_lens)
+
+
+    def update_lens(self, event=None):
+        try:
+            lens_value = float(self.lens_entry.get())
+            if lens_value <= 0:
+                lens_value = max(1, lens_value)
+                self.lens_entry.delete(0, tk.END)
+                self.lens_entry.insert(0, str(lens_value))
+            config.CAMERA_PROPERTIES['lens'] = lens_value
+            config.NM_PER_PX = config.CAMERA_PROPERTIES['px_size']*1000/lens_value
+            config.DIST = int(min(config.CAMERA_DIMS) * config.NM_PER_PX * (1 - config.IMAGE_OVERLAP))
+            print(config.NM_PER_PX)
+
+            print(f"Magnification updated to: {lens_value}")
+        except ValueError:
+            messagebox.showerror("Input Error", "Magnification must be a number!")
 
     def update_gain(self, event=None):
         """Update the gain value from the entry box."""
@@ -1391,7 +1458,9 @@ class GUI:
             # Disable the button while auto-calibration is running
             self.auto_expose_button.config(state='disabled')
 
-            test_gain, test_exposure = 100, 50000
+            test_gain, test_exposure = 100, 33000
+            target = (config.BRIGHTNESS_RANGE[0] + config.BRIGHTNESS_RANGE[1]) / 2
+            target_range = abs(config.BRIGHTNESS_RANGE[0] - config.BRIGHTNESS_RANGE[1])
             camera.gain = int(test_gain)
             camera.exposure_time_us = int(test_exposure)
             time.sleep(2*test_exposure/1e6)
@@ -1400,16 +1469,23 @@ class GUI:
             average_intensity = latest_frame.mean()
             
             while not (config.BRIGHTNESS_RANGE[0] <= average_intensity <= config.BRIGHTNESS_RANGE[1]):
-                delta_intensity = (config.BRIGHTNESS_RANGE[0] + config.BRIGHTNESS_RANGE[1]) / 2 - average_intensity
+                delta_intensity = target - average_intensity
                 
                 if 1 < test_gain < 350:
-                    test_gain += delta_intensity/10
+                    if delta_intensity > target_range/1.5:
+                        test_gain *= min(config.BRIGHTNESS_RANGE[0]/average_intensity, 2)
+                    elif delta_intensity < -target_range/1.5:
+                        test_gain /= max(config.BRIGHTNESS_RANGE[0]/average_intensity, 2)
+                    else:
+                        test_gain += delta_intensity/10
                     test_gain = min(max(1, test_gain), 350)
                 else:
-                    if delta_intensity > 0:
-                        test_exposure *= 1.99
-                    else:
-                        test_exposure /= 2.01
+                    if delta_intensity > target_range/1.5:
+                        test_exposure *= min(config.BRIGHTNESS_RANGE[0]/average_intensity, 2)
+                    elif delta_intensity < -target_range/1.5:
+                        test_exposure /= max(config.BRIGHTNESS_RANGE[1]/average_intensity, 2)
+                    else: 
+                       test_exposure += delta_intensity*1000
                     test_exposure = min(max(0, test_exposure), 30000000)
 
                 camera.gain = int(test_gain)
@@ -1438,29 +1514,61 @@ class GUI:
         # Start the auto calibration in a separate thread
         threading.Thread(target=run_auto_exposure, daemon=True).start()
 
+    def create_color_picker(self):
+        color_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
+        color_frame.grid(row=0, column=3)
+        
+        # Set the default color
+        self.color_code = "#FF4500"  # Default color (reddish-orange)
+
+        # Add a text label to the left
+        self.text_label = tk.Label(
+            color_frame,
+            text="Fluorescence\n Detection Colour:",
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+            )
+        self.text_label.grid(row=0, column=0, padx=10)
+
+        self.color_box = tk.Frame(
+            color_frame,
+            bg=self.color_code,
+            width=30,
+            height=30, 
+            bd=1,
+            relief='solid'
+        )
+        self.color_box.grid(row=0, column=1, padx=5, pady=5)
+        self.color_box.pack_propagate(False)
+
+        # Bind the label click event to open the color picker
+        self.color_box.bind("<Button-1>", self.pick_color)
+
+    def pick_color(self, event):
+        # Open the color picker dialog
+        color_code = colorchooser.askcolor(initialcolor=self.color_code, title="Choose a color")
+
+        # If a color is selected, update the color_code and change the background of the label
+        if color_code[1]:  # Check if a valid color was selected
+            self.color_code = color_code[1] 
+            self.color_box.config(bg=self.color_code)
+            rgb_tuple = ImageColor.getrgb(self.color_code)
+            config.MONOLAYER_COLOR = rgb_tuple
 
 
     def create_rotation_wheel(self):
         """Create a 360-degree rotation wheel in the calibration tab."""
         wheel_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
-        wheel_frame.grid(row=1, column=0, columnspan=2, padx=20, pady=20, sticky='nsew')
-
-        rotation_wheel_label = tk.Label(
-            self.calibration_frame_controls,
-            text="360 Degree Wheel:",
-            background=config.THEME_COLOR,
-            foreground=config.TEXT_COLOR,
-            font=config.LABEL_FONT
-        )
-        rotation_wheel_label.grid(row=2, column=0, pady=10, columnspan=2)
+        wheel_frame.grid(row=2, column=0, columnspan=2, padx=20, pady=20, sticky='nsew')
 
         # Use grid instead of pack for the canvas
-        self.canvas = tk.Canvas(wheel_frame, width=200, height=200, bg=config.THEME_COLOR, highlightthickness=0)
+        self.canvas = tk.Canvas(wheel_frame, width=100, height=100, bg=config.THEME_COLOR, highlightthickness=0)
         self.canvas.grid(row=0, column=0, padx=10, pady=10)
 
-        self.wheel_radius = 80
-        self.wheel_center_x = 100
-        self.wheel_center_y = 100
+        self.wheel_radius = 40
+        self.wheel_center_x = 50
+        self.wheel_center_y = 50
 
         self.wheel_image = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
         self.wheel_draw = ImageDraw.Draw(self.wheel_image)
@@ -1478,11 +1586,21 @@ class GUI:
         )
         self.canvas.bind("<B1-Motion>", self.update_wheel)
 
-        # Use grid instead of pack for the angle entry
+        # Use grid for the angle entry
         self.angle_entry = tk.Entry(wheel_frame, width=5, font=config.LABEL_FONT)
-        self.angle_entry.grid(row=1, column=0, pady=10)
+        self.angle_entry.grid(row=1, column=0, pady=5)
         self.angle_entry.insert(0, "270")
         self.angle_entry.bind('<Return>', self.set_angle_from_entry)
+
+        # Place the label directly under the entry box
+        rotation_wheel_label = tk.Label(
+            wheel_frame,
+            text="Camera Rotation",
+            background=config.THEME_COLOR,
+            foreground=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
+        rotation_wheel_label.grid(row=2, column=0, pady=5, sticky='n')
 
         end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(270))
         end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(270))
@@ -1599,8 +1717,8 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     end = [max(x_1, x_2), max(y_1, y_2)]
     
     # Disable buttons in the main tab
-    gui.toggle_buttons(gui.main_frame_controls ,'disabled', exclude=[gui.cat_button])
-    gui.display_results_tab(Image.open("assets/placeholder.webp"))
+    gui.root.after(0, lambda: gui.toggle_buttons(gui.main_frame_controls ,'disabled', exclude=[gui.cat_button]))
+    gui.root.after(0, lambda: gui.display_results_tab(Image.open("assets/placeholder.webp")))
     gui.image_references = []
 
     # Start stitching thread
@@ -1614,7 +1732,7 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     # Define a function to check if stitching is complete
     def check_stitching_complete():
         stitching_thread.join()  # Wait for stitching to finish
-        gui.toggle_buttons(gui.main_frame_controls ,'normal')  # Enable buttons again
+        gui.root.after(0, lambda: gui.toggle_buttons(gui.main_frame_controls ,'normal'))  # Enable buttons again
 
     # Start a separate thread to re-enable buttons once stitching is done
     threading.Thread(target=check_stitching_complete, daemon=True).start()
@@ -1639,7 +1757,8 @@ if __name__ == "__main__":
 
             camera.gain = config.CAMERA_PROPERTIES["gain"]
             camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
-
+            config.CAMERA_PROPERTIES["px_size"] = (camera.sensor_pixel_height_um + camera.sensor_pixel_width_um)/2
+            config.NM_PER_PX = config.CAMERA_PROPERTIES["px_size"]*1000/config.CAMERA_PROPERTIES["lens"]
             
             config.CAMERA_DIMS = [camera.image_width_pixels, camera.image_height_pixels]
             config.DIST = int(min(config.CAMERA_DIMS) * config.NM_PER_PX * (1-config.IMAGE_OVERLAP))
