@@ -385,6 +385,18 @@ class ImageDisplay:
         self.zoom_frame = tk.Frame(self.tab2, width=1000, height=1000)
         self.zoom_frame.pack()
 
+        # Initial zoom factor and region for zoomed view
+        self.zoom_factor = 2
+        self.region_size = 200  # Size of the region to zoom into
+        self.region = [0,0,600,600]
+        self.fixed_resize = (600, 600)
+
+        # Create an entry widget for the zoom factor
+        self.zoom_factor_entry = tk.Entry(self.tab1)
+        self.zoom_factor_entry.pack(pady=10)
+        self.zoom_factor_entry.insert(0, str(self.zoom_factor))  # Set default zoom factor
+        self.zoom_factor_entry.bind('<Return>', self.update_zoom_factor)
+
         # Create an entry widget
         self.entry = tk.Entry(self.root)
         self.entry.pack(pady=10)
@@ -423,22 +435,21 @@ class ImageDisplay:
         self.image_canvas.pack()
 
         # Image handling
-        self.image_path = "Images/test_image4.jpg"  # Replace with your image path
+        self.image_path = "Images/highlighted_monolayers_2024-09-13_141404.jpg"  # Replace with your image path
         self.original_image = Image.open(self.image_path)  # Get the image from file
 
-        # Initial zoom factor and region for zoomed view
-        self.zoom_factor = 3
-        self.region_size = 200  # Size of the region to zoom into
-        self.region = [0,0,200,200]
-
         # Display the full image on the right and bind mouse motion
-        self.tk_full_image = ImageTk.PhotoImage(self.original_image)
+        self.tk_resized_image = self.original_image.resize(
+            (int((self.region[2] - self.region[0])),
+             int((self.region[3] - self.region[1]))),
+            Image.LANCZOS)
+        self.tk_full_image = ImageTk.PhotoImage(self.tk_resized_image)
         self.image_canvas.create_image(650, 0, anchor=tk.NW, image=self.tk_full_image)
 
         # Bind mouse movement on the full image area to trigger zooming
         self.image_canvas.bind("<Motion>", self.update_zoom_on_mouse_move)
 
-        # self.plot_histograms(self.tab4)
+        self.plot_histograms(self.tab4)
 
         self.create_control_buttons()
 
@@ -452,7 +463,6 @@ class ImageDisplay:
         self.lbl_roll['text'] = random.randint(1,6)
 
     def update_zoom_on_mouse_move(self, event):
-        # Get the mouse position relative to the canvas
         mouse_x = event.x
         mouse_y = event.y
 
@@ -460,43 +470,61 @@ class ImageDisplay:
         image_x = mouse_x - 650  # Since the large image starts at x=650
         image_y = mouse_y
 
-        # Make sure the mouse is within the bounds of the image
-        if 0 <= image_x < self.original_image.width and 0 <= image_y < self.original_image.height:
-            # Calculate the region to zoom into, centered around the mouse position
-            left = max(0, image_x - self.region_size // 2)
-            top = max(0, image_y - self.region_size // 2)
-            right = min(self.original_image.width, image_x + self.region_size // 2)
-            bottom = min(self.original_image.height, image_y + self.region_size // 2)
+        # Calculate the adjusted region size based on the zoom factor
+        adjusted_region_size = self.region_size / self.zoom_factor  # Region size shrinks as zoom factor increases
 
-             # If the mouse is too close to the right/bottom edges, adjust the left/top to fit the region
-            if right - left < self.region_size:
+        # Make sure the mouse is within the bounds of the image
+        if 0 <= image_x < self.tk_resized_image.width and 0 <= image_y < self.tk_resized_image.height:
+            # Calculate the region to zoom into, centered around the mouse position
+            left = max(0, image_x - adjusted_region_size // 2)
+            top = max(0, image_y - adjusted_region_size // 2)
+            right = min(self.tk_resized_image.width, image_x + adjusted_region_size // 2)
+            bottom = min(self.tk_resized_image.height, image_y + adjusted_region_size // 2)
+
+            # If the mouse is too close to the right/bottom edges, adjust the left/top to fit the region
+            if right - left < adjusted_region_size:
                 if left == 0:
-                    right = self.region_size
+                    right = adjusted_region_size
                 else:
-                    left = right - self.region_size
-            if bottom - top < self.region_size:
+                    left = right - adjusted_region_size
+            if bottom - top < adjusted_region_size:
                 if top == 0:
-                    bottom = self.region_size
+                    bottom = adjusted_region_size
                 else:
-                    top = bottom - self.region_size
+                    top = bottom - adjusted_region_size
+
+            # Update the region to reflect the zoomed area
             self.region = [left, top, right, bottom]
 
-            # Update the zoomed image on the left
+            # Update the zoomed image
             self.update_zoomed_image()
+
 
     def update_zoomed_image(self):
         # Crop the image to the selected region
-        cropped_image = self.original_image.crop(self.region)
-        # Resize the cropped image based on the zoom factor
-        resized_image = cropped_image.resize(
-            (int((self.region[2] - self.region[0]) * self.zoom_factor),
-             int((self.region[3] - self.region[1]) * self.zoom_factor)),
-            Image.LANCZOS)
+        cropped_image = self.tk_resized_image.crop(self.region)
+        
+        # Resize the cropped image based on the new size
+        resized_image = cropped_image.resize(self.fixed_resize, Image.LANCZOS)
+
+        # If the resized image exceeds (600, 600), resize to (600, 600)
+        if resized_image.size[0] > 600 or resized_image.size[1] > 600:
+            resized_image = resized_image.resize(self.fixed_resize, Image.LANCZOS)
 
         # Display the zoomed-in image on the left side of the canvas
         self.tk_zoomed_image = ImageTk.PhotoImage(resized_image)
         self.image_canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_zoomed_image)
 
+
+    def update_zoom_factor(self, event):
+        try:
+            new_zoom_factor = float(self.zoom_factor_entry.get())
+            if new_zoom_factor > 0:  # Ensure the zoom factor is positive
+                self.zoom_factor = new_zoom_factor
+                self.update_zoomed_image()  # Update the zoomed image with the new zoom factor
+                print(self.zoom_factor)
+        except ValueError:
+            print("Invalid zoom factor. Please enter a valid number.")
     
     '''
     Creates the buttons
