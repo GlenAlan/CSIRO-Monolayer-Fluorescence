@@ -81,7 +81,7 @@ class LiveViewCanvas(tk.Canvas):
         canvas_height = self.winfo_height()
 
         # Convert PIL Image to OpenCV format
-        image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGBA2BGRA)
 
         # Calculate aspect ratio
         aspect = image_cv.shape[1] / image_cv.shape[0]
@@ -97,7 +97,7 @@ class LiveViewCanvas(tk.Canvas):
         resized_image = cv2.resize(image_cv, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
 
         # Convert back to PIL Image
-        resized_pil = Image.fromarray(cv2.cvtColor(resized_image, cv2.COLOR_BGR2RGB))
+        resized_pil = Image.fromarray(cv2.cvtColor(resized_image, cv2.COLOR_BGRA2RGBA))
 
         self._image = ImageTk.PhotoImage(master=self, image=resized_pil)
         self.create_image(0, 0, image=self._image, anchor='nw')
