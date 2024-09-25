@@ -1875,8 +1875,6 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     # Start a separate thread to re-enable buttons once stitching is done
     threading.Thread(target=check_stitching_complete, daemon=True).start()
 
-
-
 if __name__ == "__main__":
     with TLCameraSDK() as sdk:
         camera_list = sdk.discover_available_cameras()
