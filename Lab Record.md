@@ -200,10 +200,18 @@ Calibration and image viewing were the focus for today. Since different monolaye
 - Added lens calibration and made that nicer.
 
 # 25/09/2024
+
+### Glen
 - Autofocus
 - Fixed Auto Exposure
 - Many bug fixes including the camera not appearing
 - Made the autofocus adapt to the zoom 
+
+TODO:
+- [ ] Disable autofocus button when focusing
+- [ ] Allow ajustment of other config parameters in extra window
+- [ ] Refine quality parameters
+- [ ] Begin tidying
 
 ### Remainder of the placement
 
@@ -215,14 +223,16 @@ Calibration and image viewing were the focus for today. Since different monolaye
 - [X] Rerun Results Processing Button
 - [X] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
 - [X] Autofocus adapt to zoom
+- [ ] Disable autofocus button when focusing
+- [ ] Allow ajustment of other config parameters in extra window
 - [ ] Allow zoom on the results image (and click to go to location)
 - [ ] Add more instructions to the GUI and redo layout as needed
 - [ ] Refine quality parameters
-- [ ] Add an intuitive click to move on the live view image
+- [X] Add an intuitive click to move on the live view image
 - [ ] Tidy up our directory and to make it neater
 - [ ] Add a scale to the results (&live?) image
 - [ ] List the connected devices in the calibration tab (done on backend, needs GUI)
 - [ ] Add a save and load for settings etc.
-- [ ] Add automatic focus adjustment (every frame)
+- [X] Add automatic focus adjustment (every n frames)
 - [ ] Give the window a logo and package it into a .exe if possible
 - [ ] Select Camera
