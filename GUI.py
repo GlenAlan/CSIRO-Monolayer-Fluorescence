@@ -68,8 +68,6 @@ class LiveViewCanvas(tk.Canvas):
     def __init__(self, parent, image_queue):
         super().__init__(parent, bg=config.THEME_COLOR, highlightthickness=0)
         self.image_queue = image_queue
-        self._image_width = 0
-        self._image_height = 0
         self.is_active = True  # Initialize attribute to control image updates
         self.bind("<Configure>", self.on_resize)  # Bind resizing event
         self._display_image()
@@ -96,37 +94,47 @@ class LiveViewCanvas(tk.Canvas):
         self.after(config.UPDATE_DELAY, self._display_image)  # Continue updating the image
 
     def update_image_display(self, image):
-        """Resize image based on canvas size while maintaining aspect ratio."""
+        # Store the original image size
+        self.original_image_width = image.width
+        self.original_image_height = image.height
+        self.current_image = image  # Store the current image
+
+        # Get the current size of the canvas
         canvas_width = self.winfo_width()
         canvas_height = self.winfo_height()
 
-        # Convert PIL Image to OpenCV format
-        image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGBA2BGRA)
+        # Avoid division by zero
+        if canvas_width == 0 or canvas_height == 0:
+            return
 
-        # Calculate aspect ratio
-        aspect = image_cv.shape[1] / image_cv.shape[0]
+        # Compute the scaling factors to fit the image to the canvas
+        scale_x = canvas_width / self.original_image_width
+        scale_y = canvas_height / self.original_image_height
+        self.scale = min(scale_x, scale_y)
 
-        if canvas_width / aspect < canvas_height:
-            new_width = canvas_width
-            new_height = int(canvas_width / aspect)
-        else:
-            new_height = canvas_height
-            new_width = int(canvas_height * aspect)
+        # Resize the image accordingly
+        new_width = int(self.original_image_width * self.scale)
+        new_height = int(self.original_image_height * self.scale)
+        self.displayed_image = image.resize((new_width, new_height), Image.LANCZOS)
 
-        # Resize using OpenCV for speed
-        resized_image = cv2.resize(image_cv, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+        # Store the displayed image size
+        self.displayed_image_width = new_width
+        self.displayed_image_height = new_height
 
-        # Convert back to PIL Image
-        resized_pil = Image.fromarray(cv2.cvtColor(resized_image, cv2.COLOR_BGRA2RGBA))
+        # Clear the canvas
+        self.delete("all")
 
-        self._image = ImageTk.PhotoImage(master=self, image=resized_pil)
-        self.create_image(0, 0, image=self._image, anchor='nw')
+        # Update the image on the canvas
+        self.photo_image = ImageTk.PhotoImage(self.displayed_image)
+        # Center the image on the canvas
+        self.image_x0 = (canvas_width - new_width) // 2
+        self.image_y0 = (canvas_height - new_height) // 2
+        self.create_image(self.image_x0, self.image_y0, anchor='nw', image=self.photo_image)
 
     def on_resize(self, event):
-        """Handle canvas resizing."""
-        self._image_width = event.width
-        self._image_height = event.height
-        self._display_image()  # Update display to fit new canvas size
+        # Redraw the image when the canvas is resized
+        if hasattr(self, 'current_image'):
+            self.update_image_display(self.current_image)
 
 
 def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
@@ -519,10 +527,11 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
 
 def auto_focus(mcm301obj, image_queue, params=None):
     z = get_pos(mcm301obj, (6,))[0]
+    lens_ajustment_factor = 20/config.CAMERA_PROPERTIES['lens']
     if params:
         z_range = np.linspace(z-params[0], z+params[0], params[1]) 
     else:
-        z_range = np.linspace(z-config.FOCUS_RANGE, z+config.FOCUS_RANGE, config.FOCUS_STEPS)
+        z_range = np.linspace(z-int(config.FOCUS_RANGE*lens_ajustment_factor), z+int(config.FOCUS_RANGE*lens_ajustment_factor), config.FOCUS_STEPS)
     best_z = z
     best_focus = 0
     for z_i in z_range:
@@ -534,11 +543,10 @@ def auto_focus(mcm301obj, image_queue, params=None):
             best_z = int(z_i)
     move(mcm301obj, [best_z], (6,))
 
-def initial_auto_focus(mcm301obj, image_queue):
-    n = 4
-    d = 1e6
-    while d > 5e3:
-        auto_focus(mcm301obj, image_queue, params=[d, n])
+def initial_auto_focus(mcm301obj, image_queue, n = 5):
+    d = 2e7/config.CAMERA_PROPERTIES['lens']
+    while d > 10e4/config.CAMERA_PROPERTIES['lens']:
+        auto_focus(mcm301obj, image_queue, params=[int(d), n])
         d = d/(n-1)
 
 def get_focus(image):
@@ -809,6 +817,7 @@ class GUI:
         # Live camera view in the left frame
         self.live_view_canvas = LiveViewCanvas(self.left_frame, self.image_acquisition_thread._image_queue)
         self.live_view_canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.live_view_canvas.bind("<Button-1>", self.move_on_click)
 
         # Initialize live position labels in the left frame
         self.position_frame = tk.Frame(self.left_frame, bg=config.THEME_COLOR)
@@ -828,6 +837,55 @@ class GUI:
 
         # Handle window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def move_on_click(self, event):
+        """Handle a mouse click to move the image."""
+        # Access the LiveViewCanvas instance
+        canvas = self.live_view_canvas
+
+        # Check if the image attributes are available
+        if not all(hasattr(canvas, attr) for attr in ['original_image_width', 'original_image_height', 'displayed_image_width', 'displayed_image_height', 'image_x0', 'image_y0', 'scale']):
+            print("Image dimensions not available.")
+            return
+
+        # Get the position of the click relative to the canvas
+        click_x_canvas, click_y_canvas = event.x, event.y
+
+        # Get the canvas size
+        canvas_width = canvas.winfo_width()
+        canvas_height = canvas.winfo_height()
+
+        # Retrieve the stored image position and scaling
+        image_x0 = canvas.image_x0
+        image_y0 = canvas.image_y0
+        scale = canvas.scale
+
+        # Check if the click is within the displayed image
+        if not (image_x0 <= click_x_canvas <= image_x0 + canvas.displayed_image_width and
+                image_y0 <= click_y_canvas <= image_y0 + canvas.displayed_image_height):
+            print("Click is outside the image.")
+            return
+
+        # Map the click position to the image coordinates
+        click_x_image = (click_x_canvas - image_x0) / scale
+        click_y_image = (click_y_canvas - image_y0) / scale
+
+        # Calculate the center of the image in image coordinates
+        image_center_x = canvas.original_image_width / 2
+        image_center_y = canvas.original_image_height / 2
+
+        # Calculate the distance and direction from the center of the image
+        move_x = click_x_image - image_center_x
+        move_y = click_y_image - image_center_y
+
+        # Convert the movement from pixels to nanometers (or appropriate units)
+        stage_move_x = move_x * config.NM_PER_PX
+        stage_move_y = move_y * config.NM_PER_PX
+
+        # Move the stage accordingly
+        move_relative(self.stage_controller, [stage_move_x, stage_move_y], wait=False)
+
+
 
     def init_progress_bar(self):
         """Initialize the progress bar and status label in the main tab."""
@@ -1403,10 +1461,10 @@ class GUI:
 
         # Navigation buttons positions
         navigation_buttons = [
-            ("Up", (0, 1), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST / 2)], stages=(5,), wait=False)),
-            ("Left", (1, 0), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST / 2)], stages=(4,), wait=False)),
-            ("Right", (1, 2), lambda: move_relative(self.stage_controller, pos=[int(config.DIST / 2)], stages=(4,), wait=False)),
-            ("Down", (2, 1), lambda: move_relative(self.stage_controller, pos=[int(config.DIST / 2)], stages=(5,), wait=False)),
+            ("Up", (0, 1), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST)], stages=(5,), wait=False)),
+            ("Left", (1, 0), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST)], stages=(4,), wait=False)),
+            ("Right", (1, 2), lambda: move_relative(self.stage_controller, pos=[int(config.DIST)], stages=(4,), wait=False)),
+            ("Down", (2, 1), lambda: move_relative(self.stage_controller, pos=[int(config.DIST)], stages=(5,), wait=False)),
         ]
 
         # Create navigation buttons with equal size
