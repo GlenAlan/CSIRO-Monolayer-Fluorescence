@@ -1,5 +1,6 @@
 import os
 import sys
+import signal
 import time
 import random
 import math
@@ -759,6 +760,7 @@ class GUI:
         self.camera = camera
         self.image_acquisition_thread = ImageAcquisitionThread(self.camera, rotation_angle=270)
         self.image_acquisition_thread.start()
+
 
         self.frame_queue = queue.Queue(maxsize=config.MAX_QUEUE_SIZE)
 
@@ -1559,8 +1561,8 @@ class GUI:
                 self.gain_entry.delete(0, tk.END)
                 self.gain_entry.insert(0, str(gain_value))
             config.CAMERA_PROPERTIES['gain'] = int(gain_value*10)
-            camera.gain = config.CAMERA_PROPERTIES["gain"]
-            camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
+            self.camera.gain = config.CAMERA_PROPERTIES["gain"]
+            self.camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
 
             print(f"Gain updated to: {gain_value}")
         except ValueError:
@@ -1575,8 +1577,8 @@ class GUI:
                 self.exposure_entry.delete(0, tk.END)
                 self.exposure_entry.insert(0, str(exposure_value))
             config.CAMERA_PROPERTIES['exposure'] = int(exposure_value*1000)
-            camera.gain = config.CAMERA_PROPERTIES["gain"]
-            camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
+            self.camera.gain = config.CAMERA_PROPERTIES["gain"]
+            self.camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
             
             print(f"Exposure updated to: {exposure_value}")
         except ValueError:
@@ -1591,8 +1593,8 @@ class GUI:
 
             test_gain, test_exposure = 100, 33000
             target = (config.BRIGHTNESS_RANGE[0] + config.BRIGHTNESS_RANGE[1]) / 2
-            camera.gain = int(test_gain)
-            camera.exposure_time_us = int(test_exposure)
+            self.camera.gain = int(test_gain)
+            self.camera.exposure_time_us = int(test_exposure)
             time.sleep(2*test_exposure/1e6)
             for i in range(3):
                 latest_frame = np.array(self.image_acquisition_thread._image_queue.get(max(int(test_exposure/1e3), 1000)))
@@ -1626,8 +1628,8 @@ class GUI:
                         test_exposure += delta_intensity*1000
                     test_exposure = min(max(10, test_exposure), 30000000)
 
-                camera.gain = int(test_gain)
-                camera.exposure_time_us = int(test_exposure)
+                self.camera.gain = int(test_gain)
+                self.camera.exposure_time_us = int(test_exposure)
 
                 # Get the next frame and update the average intensity
                 # time.sleep(2*test_exposure/1e6)
@@ -1834,16 +1836,21 @@ class GUI:
         self.image_acquisition_thread._rotation_angle = angle
 
         print(f"Camera rotation set to: {angle:.2f} degrees")
-
+        
     def on_closing(self):
         """Handle the cleanup on closing the application."""
         try:
             if self.image_acquisition_thread.is_alive():
                 self.image_acquisition_thread.stop()
                 self.image_acquisition_thread.join()
+            if self.camera.is_armed:
+                self.camera.disarm()
+            self.camera.dispose()
         except Exception as e:
             print(f"Error during shutdown: {e}")
         self.root.destroy()
+
+
 
 
 
@@ -1875,43 +1882,98 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     # Start a separate thread to re-enable buttons once stitching is done
     threading.Thread(target=check_stitching_complete, daemon=True).start()
 
-if __name__ == "__main__":
-    with TLCameraSDK() as sdk:
-        camera_list = sdk.discover_available_cameras()
-        # print(camera_list)
-        if len(camera_list) == 0:
-            print("No cameras found.")
-            sys.exit(1)
+def cleanup(signum=None, frame=None):
+    print("Signal received, cleaning up...")
+    try:
+        if 'GUI_main' in globals() and GUI_main is not None:
+            GUI_main.on_closing()
+        elif 'camera' in globals() and camera is not None:
+            if camera.is_armed:
+                camera.disarm()
+            camera.dispose()
+    except Exception as e:
+        print(f"Exception during cleanup: {e}")
+    sys.exit(0)
 
-        with sdk.open_camera(camera_list[-1]) as camera:
+if __name__ == "__main__":
+    # Set up signal handlers for unexpected termination
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+
+    try:
+        with TLCameraSDK() as sdk:
+            camera_list = sdk.discover_available_cameras()
+            if len(camera_list) == 0:
+                print("No cameras found.")
+                sys.exit(1)
+
+            # Open the camera without using 'with' so it stays open
+            camera = sdk.open_camera(camera_list[-1])
             print(f"Camera {camera_list[0]} initialized.")
-            
-            # Ensure the camera is properly armed
+
+            # Ensure the camera is properly disarmed before setting parameters
+            if camera.is_armed:
+                print("Camera was already armed. Disarming first.")
+                camera.disarm()
+
+            # Set camera parameters before arming
             print("Setting camera parameters...")
             camera.frames_per_trigger_zero_for_unlimited = 0
-            camera.arm(2)
-
             camera.gain = config.CAMERA_PROPERTIES["gain"]
             camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
-            config.CAMERA_PROPERTIES["px_size"] = (camera.sensor_pixel_height_um + camera.sensor_pixel_width_um)/2
-            config.NM_PER_PX = config.CAMERA_PROPERTIES["px_size"]*1000/config.CAMERA_PROPERTIES["lens"]
-            
-            config.CAMERA_DIMS = [camera.image_width_pixels, camera.image_height_pixels]
-            config.DIST = int(min(config.CAMERA_DIMS) * config.NM_PER_PX * (1-config.IMAGE_OVERLAP))
 
-            camera.issue_software_trigger()
+            # Arm the camera
+            try:
+                camera.arm(2)
+            except Exception as e:
+                print(f"Error arming the camera: {e}")
+                camera.disarm()
+                camera.dispose()
+                sys.exit(1)
 
-            print("App initializing...")
-            root = tk.Tk()
-            GUI_main = GUI(root, camera)
-            root.after(1000, GUI_main.auto_camera_settings)
+            if not camera.is_armed:
+                print("Camera failed to arm. Please disconnect and reconnect the camera.")
+                camera.dispose()
+                sys.exit(1)
 
-            print("App starting")
-            root.mainloop()
+            # Proceed with your application logic
+            try:
+                # Update config parameters
+                config.CAMERA_PROPERTIES["px_size"] = (
+                    camera.sensor_pixel_height_um + camera.sensor_pixel_width_um
+                ) / 2
+                config.NM_PER_PX = (
+                    config.CAMERA_PROPERTIES["px_size"] * 1000 / config.CAMERA_PROPERTIES["lens"]
+                )
 
-            print("Waiting for image acquisition thread to finish...")
-            GUI_main.image_acquisition_thread.stop()
-            GUI_main.image_acquisition_thread.join()
+                config.CAMERA_DIMS = [camera.image_width_pixels, camera.image_height_pixels]
+                config.DIST = int(
+                    min(config.CAMERA_DIMS) * config.NM_PER_PX * (1 - config.IMAGE_OVERLAP)
+                )
 
-            print("Closing resources...")
-    print("App terminated. Goodbye!")
+                camera.issue_software_trigger()
+
+                print("App initializing...")
+                root = tk.Tk()
+                GUI_main = GUI(root, camera)
+                root.after(1000, GUI_main.auto_camera_settings)
+
+                print("App starting")
+                root.mainloop()
+
+                print("Waiting for image acquisition thread to finish...")
+                GUI_main.image_acquisition_thread.stop()
+                GUI_main.image_acquisition_thread.join()
+
+                print("Closing resources...")
+            except Exception as e:
+                print(f"An exception occurred: {e}")
+            finally:
+                # Ensure the camera is disarmed and disposed
+                if camera.is_armed:
+                    camera.disarm()
+                camera.dispose()
+    except Exception as e:
+        print(f"An error occurred during camera initialization: {e}")
+    finally:
+        print("App terminated. Goodbye!")
