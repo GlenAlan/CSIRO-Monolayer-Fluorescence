@@ -179,7 +179,7 @@ The very important cat pop up image was missing from the main GUI tab so that wa
 
 ### Glen
 - Redid layout for live camera
-- Added camera ajustment boxes
+- Added camera adjustment boxes
 - Added Results Treeview and go to
 - Redid much of the layout
 - Made the goto positions work for X, Y, Z individually
@@ -195,9 +195,11 @@ Calibration and image viewing were the focus for today. Since different monolaye
 ### Glen
 - Added automatic exposure
 - Refined the Monolayer Colour detection
-- Refromatted calibration tab
+- Reformatted calibration tab
 - Enabled rerunning of post processing
 - Added lens calibration and made that nicer.
+
+To implement the lens calibration I used the data supplied from the camera to determine the pixel dimensions. From here the nm to px conversion factor could be determined by dividing the size of the pixels by the magnification factor. A box to enter the magnification factor was added in the calibration tab.
 
 # 25/09/2024
 
@@ -207,9 +209,12 @@ Calibration and image viewing were the focus for today. Since different monolaye
 - Many bug fixes including the camera not appearing
 - Made the autofocus adapt to the zoom 
 
+The main goal for today was to implement auto focus routines. To achieve this I first needed to find a good quantitative measure of the image focus which was exposure invariant, ignored image noise, and was sensitive to small changes in focus. After several tests I settled on the Power Spectrum Slope method. This involved taking the 2D fourier transform of the image and computing the magnitude of each frequency component to get the Power Spectrum of the image where high frequency data corresponds to sharp edges. The radial components were averaged to remove the radial dependance which also contracts the noise. The log of frequency was then compared against the log of power to obtain a linear relationship which a line was fit too. The slope of this line acted as our focus measure. The shallower the line, the greater the abundance of high frequency components and thus the sharpness or focus of the image. This magnitude of this value was inverted such that higher values indicated better focus.  
+Changes were also made to the auto expose routine, increasing the accuracy and speeding up the process. The changes included limiting the proportional increase/decrease in gain/exposure to 20% per step as to avoid overshooting and adding extra criteria for when the exposure is way too high or low. It also now tries to converge to the closest allowed value in the image intensity (exposure) range.
+
 TODO:
 - [ ] Disable autofocus button when focusing
-- [ ] Allow ajustment of other config parameters in extra window
+- [ ] Allow adjustment of other config parameters in extra window
 - [ ] Refine quality parameters
 - [ ] Begin tidying
 
@@ -224,7 +229,7 @@ TODO:
 - [X] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
 - [X] Autofocus adapt to zoom
 - [ ] Disable autofocus button when focusing
-- [ ] Allow ajustment of other config parameters in extra window
+- [ ] Allow adjustment of other config parameters in extra window
 - [ ] Allow zoom on the results image (and click to go to location)
 - [ ] Add more instructions to the GUI and redo layout as needed
 - [ ] Refine quality parameters
