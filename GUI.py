@@ -12,6 +12,9 @@ from matplotlib.backends.backend_tkagg import (
 import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor
 
+from scipy.optimize import curve_fit
+from scipy.signal.windows import hamming
+
 import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser
 from PIL import Image, ImageTk, ImageDraw, ImageColor
@@ -289,6 +292,11 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
     stitched_view_canvas.update_image_display(stitched_image)
 
     config.canvas = canvas
+
+    if config.SAVE_RAW_IMAGE:
+        threading.Thread(target=lambda: save_image(canvas, "Images/RAW.png"), daemon=True).start()
+        
+
     post_processing(gui, canvas, start)
 
 def post_processing(gui, canvas, start, contrast=2, threshold=100):
@@ -411,8 +419,10 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     num_images = math.ceil((end[0]-start[0])/config.DIST+1)*math.ceil((end[1]-start[1])/config.DIST+1)
     print(num_images)
     config.current_image = 0
+
+    focuses = []
     
-    def capture_and_store_frame(x, y):
+    def capture_and_store_frame(x, y, focuses):
         """
         Captures a frame from the image queue and stores it with its position in the frame queue.
         
@@ -420,11 +430,21 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
             x (int): The x-coordinate in nanometers.
             y (int): The y-coordinate in nanometers.
         """
-        time.sleep(config.CAMERA_PROPERTIES["exposure"]/1e6)
+        time.sleep(1.5*config.CAMERA_PROPERTIES["exposure"]/1e6)
 
 
         ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
+
+        if config.AUTOFOCUS:
+            focuses.append(get_focus(frame))
+            if len(focuses) > config.FOCUS_FRAME_AVG*2 and np.average(focuses[0:-config.FOCUS_FRAME_AVG]) > np.average(focuses[-config.FOCUS_FRAME_AVG:-1])*config.FOCUS_BUFFER:
+                auto_focus(mcm301obj, image_queue)
+                focuses.clear()
+                frame = image_queue.get(timeout=1000)
+                focuses.append(get_focus(frame))
+
+
         r = random.randint(-20, 4)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
@@ -434,7 +454,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
 
         ###################################################################################################################################
 
-    def scan_line(x, y, direction):
+    def scan_line(x, y, direction, focuses):
         """
         Scans a single line in the current direction, capturing images along the way.
         
@@ -447,12 +467,12 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
             int: The updated x-coordinate after completing the line scan.
         """
         while (direction == 1 and x < end[0]) or (direction == -1 and x > start[0]):
-            capture_and_store_frame(x, y)
+            capture_and_store_frame(x, y, focuses)
             x += config.DIST * direction
             move(mcm301obj, (x, y))
         
         # Capture final frame at the line end
-        capture_and_store_frame(x, y)
+        capture_and_store_frame(x, y, focuses)
         
         return x
     
@@ -460,9 +480,11 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     move(mcm301obj, start)
     x, y = start
     direction = 1
+
+    auto_focus(mcm301obj, image_queue)
     
     while y < end[1]:
-        x = scan_line(x, y, direction)
+        x = scan_line(x, y, direction, focuses)
         
         # Move to the next line
         y += config.DIST
@@ -470,12 +492,107 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
         
         # Reverse direction for the next line scan
         direction *= -1
-    scan_line(x, y, direction)
+    scan_line(x, y, direction, focuses)
 
     print("\nImage capture complete!")
     print("Waiting for image processing to complete...")
     gui.root.after(0, lambda: gui.update_progress(92, "Image stitching..."))
     frame_queue.put(None)
+
+
+def auto_focus(mcm301obj, image_queue, params=None):
+    z = get_pos(mcm301obj, (6,))[0]
+    if params:
+        z_range = np.linspace(z-params[0], z+params[0], params[1]) 
+    else:
+        z_range = np.linspace(z-config.FOCUS_RANGE, z+config.FOCUS_RANGE, config.FOCUS_STEPS)
+    best_z = z
+    best_focus = 0
+    for z_i in z_range:
+        move(mcm301obj, [int(z_i)], (6,))
+        time.sleep(config.CAMERA_PROPERTIES['exposure']/1e6)
+        focus = get_focus(image_queue.get(1000))
+        if focus > best_focus:
+            best_focus = focus
+            best_z = int(z_i)
+    move(mcm301obj, [best_z], (6,))
+
+def initial_auto_focus(mcm301obj, image_queue):
+    n = 4
+    d = 1e6
+    while d > 5e3:
+        auto_focus(mcm301obj, image_queue, params=[d, n])
+        d = d/(n-1)
+
+def get_focus(image):
+    """
+    Calculates the focus measure of an image using the Power Spectrum Slope method.
+
+    Parameters:
+        image (PIL.Image): Input PIL image.
+
+    Returns:
+        float: Focus measure value (slope of the power spectrum).
+    """
+    # Convert to grayscale and convert to numpy array
+    img_gray = np.array(image.convert('L'), dtype=np.float32)
+
+    # Apply a Hamming window to reduce edge effects
+    window = hamming(img_gray.shape[0])[:, None] * hamming(img_gray.shape[1])[None, :]
+    img_windowed = img_gray * window
+
+    # Compute the 2D FFT of the image
+    f = np.fft.fft2(img_windowed)
+    fshift = np.fft.fftshift(f)
+
+    # Compute the power spectrum
+    power_spectrum = np.abs(fshift) ** 2
+
+    # Create a grid of frequencies
+    num_rows, num_cols = img_gray.shape
+    cy, cx = num_rows // 2, num_cols // 2
+    y, x = np.indices((num_rows, num_cols))
+    r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+    r = r.astype(int)  # Changed from np.int to int
+
+    # Radially average the power spectrum
+    tbin = np.bincount(r.ravel(), power_spectrum.ravel())
+    nr = np.bincount(r.ravel())
+    radial_profile = tbin / (nr + 1e-8)  # Avoid division by zero
+
+    # Ignore zero frequencies
+    radial_profile = radial_profile[1:]
+    frequencies = np.arange(1, len(radial_profile) + 1)
+
+    # Convert to log-log scale
+    log_freq = np.log(frequencies)
+    log_power = np.log(radial_profile + 1e-8)  # Avoid log(0)
+
+    # Define a linear function for fitting
+    def linear_func(x, a, b):
+        return a * x + b
+
+    # Fit a line to the log-log power spectrum
+    try:
+        slope, intercept = curve_fit(linear_func, log_freq, log_power)[0]
+    except RuntimeError:
+        # If the fit fails, return a large negative slope indicating poor focus
+        slope = -10.0
+
+    # The slope of the line is the focus measure
+    focus_value = -slope  # Invert the slope to make higher values indicate better focus
+
+    print(f"Focus Value: {focus_value}")
+
+    return focus_value
+
+
+
+
+
+
+
+
 
 class Monolayer:
     def __init__(self, contour, image, pos):
@@ -1158,6 +1275,7 @@ class GUI:
         self.create_main_frame_buttons()
         self.create_calibration_controls()
         self.create_lens_selector()
+        self.create_auto_focus()
 
         self.cat_button = tk.Button(
             self.main_frame_controls,
@@ -1309,7 +1427,7 @@ class GUI:
             button.grid(row=0, column=col, padx=2, pady=2, sticky='nsew')
 
     def create_gain_exposure_controls(self):
-        """Create Gain and Exposure entry boxes and AutoExpose button in the calibration tab."""
+        """Create Gain and Exposure entry boxes and Auto Expose button in the calibration tab."""
 
         # Create a frame to hold Gain and Exposure controls
         gain_exposure_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
@@ -1358,10 +1476,10 @@ class GUI:
         self.exposure_entry.insert(0, str(config.CAMERA_PROPERTIES['exposure']/1000))
         self.exposure_entry.bind('<Return>', self.update_exposure)
 
-        # AutoExpose Button
+        # Auto Expose Button
         self.auto_expose_button = tk.Button(
             gain_exposure_frame,
-            text="AutoExpose",
+            text="Auto Expose",
             command=self.auto_camera_settings,
             bg=config.BUTTON_COLOR,
             fg=config.TEXT_COLOR,
@@ -1371,17 +1489,13 @@ class GUI:
 
     
     def create_lens_selector(self):
-        """Create Gain and Exposure entry boxes and AutoExpose button in the calibration tab."""
 
-        # Create a frame to hold Gain and Exposure controls
         lens_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
         lens_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky='nsew')
 
-        # Configure grid in gain_exposure_frame
         lens_frame.columnconfigure(0, weight=1)
         lens_frame.columnconfigure(1, weight=1)
 
-        # Gain Label and Entry
         lens_label = tk.Label(
             lens_frame,
             text="Magnification: ",
@@ -1399,6 +1513,25 @@ class GUI:
         self.lens_entry.grid(row=0, column=1, padx=5, pady=5)
         self.lens_entry.insert(0, str(config.CAMERA_PROPERTIES['lens']))
         self.lens_entry.bind('<Return>', self.update_lens)
+
+    def create_auto_focus(self):
+
+        auto_focus_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
+        auto_focus_frame.grid(row=1, column=3, columnspan=1, padx=10, pady=10, sticky='nsew')
+
+        self.auto_focus_button = tk.Button(
+            auto_focus_frame,
+            text="Auto Focus",
+            command=lambda: threading.Thread(
+                    target=initial_auto_focus,
+                    args=(self.stage_controller, self.image_acquisition_thread._image_queue),
+                    daemon=True
+                ).start(),
+            bg=config.BUTTON_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.BUTTON_FONT
+        )
+        self.auto_focus_button.grid(row=0, column=0, padx=5, pady=5)
 
 
     def update_lens(self, event=None):
@@ -1458,7 +1591,6 @@ class GUI:
 
             test_gain, test_exposure = 100, 33000
             target = (config.BRIGHTNESS_RANGE[0] + config.BRIGHTNESS_RANGE[1]) / 2
-            target_range = abs(config.BRIGHTNESS_RANGE[0] - config.BRIGHTNESS_RANGE[1])
             camera.gain = int(test_gain)
             camera.exposure_time_us = int(test_exposure)
             time.sleep(2*test_exposure/1e6)
@@ -1470,27 +1602,35 @@ class GUI:
                 delta_intensity = target - average_intensity
                 
                 if 1 < test_gain < 350:
-                    if delta_intensity > target_range/1.5:
-                        test_gain *= min(config.BRIGHTNESS_RANGE[0]/average_intensity, 2)
-                    elif delta_intensity < -target_range/1.5:
-                        test_gain /= max(config.BRIGHTNESS_RANGE[0]/average_intensity, 2)
+                    if average_intensity > 250 and test_gain > 5 :
+                        test_gain *= 0.5
+                    elif average_intensity < 10:
+                        test_gain *= 1.99
+                    elif average_intensity < config.BRIGHTNESS_RANGE[0]:
+                        test_gain *= min(config.BRIGHTNESS_RANGE[0]/average_intensity, 1.2)
+                    elif average_intensity > config.BRIGHTNESS_RANGE[1] and test_gain > 5:
+                        test_gain *= min(config.BRIGHTNESS_RANGE[1]/average_intensity, 1.2)
                     else:
                         test_gain += delta_intensity/10
                     test_gain = min(max(1, test_gain), 350)
                 else:
-                    if delta_intensity > target_range/1.5:
-                        test_exposure *= min(config.BRIGHTNESS_RANGE[0]/average_intensity, 2)
-                    elif delta_intensity < -target_range/1.5:
-                        test_exposure /= max(config.BRIGHTNESS_RANGE[1]/average_intensity, 2)
+                    if average_intensity > 240:
+                        test_exposure *= 0.5
+                    elif average_intensity < 16:
+                        test_exposure *= 1.99
+                    elif average_intensity < config.BRIGHTNESS_RANGE[0]:
+                        test_exposure *= min(config.BRIGHTNESS_RANGE[0]/average_intensity, 1.2)
+                    elif average_intensity > config.BRIGHTNESS_RANGE[1]:
+                        test_exposure *= min(config.BRIGHTNESS_RANGE[1]/average_intensity, 1.2)
                     else: 
-                       test_exposure += delta_intensity*1000
-                    test_exposure = min(max(0, test_exposure), 30000000)
+                        test_exposure += delta_intensity*1000
+                    test_exposure = min(max(10, test_exposure), 30000000)
 
                 camera.gain = int(test_gain)
                 camera.exposure_time_us = int(test_exposure)
 
                 # Get the next frame and update the average intensity
-                time.sleep(2*test_exposure/1e6)
+                # time.sleep(2*test_exposure/1e6)
                 latest_frame = np.array(self.image_acquisition_thread._image_queue.get(max(int(test_exposure/1e3), 1000)))
                 average_intensity = latest_frame.mean()
                 print(average_intensity)
@@ -1734,8 +1874,6 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
 
     # Start a separate thread to re-enable buttons once stitching is done
     threading.Thread(target=check_stitching_complete, daemon=True).start()
-
-
 
 if __name__ == "__main__":
     with TLCameraSDK() as sdk:
