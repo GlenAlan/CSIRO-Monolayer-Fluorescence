@@ -199,6 +199,12 @@ Calibration and image viewing were the focus for today. Since different monolaye
 - Enabled rerunning of post processing
 - Added lens calibration and made that nicer.
 
+# 25/09/2024
+- Autofocus
+- Fixed Auto Exposure
+- Many bug fixes including the camera not appearing
+- Made the autofocus adapt to the zoom 
+
 ### Remainder of the placement
 
 - [X] Add cat in a Santa hat
