@@ -386,20 +386,20 @@ class ImageAcquisitionThread(threading.Thread):
                     self._camera.issue_software_trigger()
                     frame = self._camera.get_pending_frame_or_null()
                     if frame is not None:
-                        logging.debug("Frame received.")
+                        # logging.debug("Frame received.")
                         if self._is_color:
                             pil_image = self._get_color_image(frame)
                         else:
                             pil_image = self._get_image(frame)
                         self._image_queue.put_nowait(pil_image)
                     else:
-                        logging.debug("No frame received. Retrying...")
+                        # logging.debug("No frame received. Retrying...")
                         time.sleep(0.01)
                 except TLCameraError as error:
                     logging.exception("Camera error encountered in image acquisition thread:")
                     break
                 except queue.Full:
-                    logging.warning("Image queue is full. Dropping frame.")
+                    # logging.warning("Image queue is full. Dropping frame.")
                     pass
                 except Exception as error:
                     logging.exception("Encountered error in image acquisition thread:")

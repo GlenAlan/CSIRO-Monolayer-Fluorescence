@@ -203,11 +203,12 @@ Calibration and image viewing were the focus for today. Since different monolaye
 
 - [X] Add cat in a Santa hat
 - [X] Add camera parameter adjustment (done on backend, needs GUI)
-- [ ] Add a focus routine (planar)
+- [X] Add a focus routine
 - [X] List the located monolayers and stats and add an option to take you to a specific one (done on backend, needs GUI)
 - [X] Different lens calibration
 - [X] Rerun Results Processing Button
 - [X] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
+- [X] Autofocus adapt to zoom
 - [ ] Allow zoom on the results image (and click to go to location)
 - [ ] Add more instructions to the GUI and redo layout as needed
 - [ ] Refine quality parameters
