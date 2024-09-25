@@ -31,9 +31,10 @@ import config
 from MCM301_COMMAND_LIB import *
 
 # Thorlabs TSI SDK imports
-from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame
+from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame, TLCameraError
 from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
 from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
+
 
 # Windows-specific setup
 try:
@@ -41,6 +42,21 @@ try:
     configure_path()
 except ImportError:
     configure_path = None
+
+
+
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,  # Set to DEBUG to capture all types of logs
+    format='%(asctime)s [%(levelname)s] %(threadName)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Log to console
+        logging.FileHandler('app_debug.log', mode='w')  # Log to a file
+    ]
+)
+
 
 
 def image_to_stage(center_coords, start):
@@ -756,18 +772,19 @@ class GUI:
         self.root.title('Camera Control Interface')
         self.root.configure(bg=config.THEME_COLOR)
 
+
+        # Initialize the stage controller
+        self.stage_controller = stage_setup(home=False)
+
         # Initialize camera and image acquisition thread
         self.camera = camera
         self.image_acquisition_thread = ImageAcquisitionThread(self.camera, rotation_angle=270)
         self.image_acquisition_thread.start()
 
-
         self.frame_queue = queue.Queue(maxsize=config.MAX_QUEUE_SIZE)
 
         self.image_references = []
 
-        # Initialize the stage controller
-        self.stage_controller = stage_setup(home=False)
 
         # Create main frame with two columns
         self.main_frame = tk.Frame(self.root, bg=config.THEME_COLOR)
@@ -1836,19 +1853,31 @@ class GUI:
         self.image_acquisition_thread._rotation_angle = angle
 
         print(f"Camera rotation set to: {angle:.2f} degrees")
-        
+
     def on_closing(self):
         """Handle the cleanup on closing the application."""
+        logging.info("GUI is closing. Initiating cleanup.")
         try:
             if self.image_acquisition_thread.is_alive():
+                logging.info("Stopping image acquisition thread...")
                 self.image_acquisition_thread.stop()
                 self.image_acquisition_thread.join()
-            if self.camera.is_armed:
-                self.camera.disarm()
-            self.camera.dispose()
+                logging.info("Image acquisition thread stopped.")
+            try:
+                if not getattr(self.camera, 'disposed', False):
+                    logging.info("Disarming and disposing the camera...")
+                    self.camera.disarm()
+                    self.camera.dispose()
+                    self.camera.disposed = True  # Mark the camera as disposed
+            except (TLCameraError, AttributeError) as e:
+                logging.exception("Error while disarming or disposing the camera in on_closing:")
         except Exception as e:
-            print(f"Error during shutdown: {e}")
+            logging.exception("Error during shutdown:")
         self.root.destroy()
+        logging.info("GUI closed successfully.")
+
+
+
 
 
 
@@ -1883,56 +1912,82 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     threading.Thread(target=check_stitching_complete, daemon=True).start()
 
 def cleanup(signum=None, frame=None):
-    print("Signal received, cleaning up...")
+    logging.info("Signal received, cleaning up...")
     try:
         if 'GUI_main' in globals() and GUI_main is not None:
             GUI_main.on_closing()
         elif 'camera' in globals() and camera is not None:
-            if camera.is_armed:
-                camera.disarm()
-            camera.dispose()
+            if not getattr(camera, 'disposed', False):
+                try:
+                    logging.info("Disarming and disposing the camera...")
+                    camera.disarm()
+                    camera.dispose()
+                    camera.disposed = True  # Mark the camera as disposed
+                except (TLCameraError, AttributeError) as e:
+                    logging.exception("Error while disarming or disposing the camera during cleanup:")
+            else:
+                logging.info("Camera already disposed.")
     except Exception as e:
-        print(f"Exception during cleanup: {e}")
+        logging.exception(f"Exception during cleanup: {e}")
     sys.exit(0)
+
+
 
 if __name__ == "__main__":
     # Set up signal handlers for unexpected termination
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
 
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,  # Set to DEBUG to capture all types of logs
+        format='%(asctime)s [%(levelname)s] %(threadName)s: %(message)s',
+        handlers=[
+            logging.StreamHandler(),  # Log to console
+            logging.FileHandler('app_debug.log', mode='w')  # Log to a file
+        ]
+    )
+
     try:
+        logging.info("Initializing TLCameraSDK...")
         with TLCameraSDK() as sdk:
+            logging.info("Discovering available cameras...")
             camera_list = sdk.discover_available_cameras()
+            logging.debug(f"Available cameras: {camera_list}")
             if len(camera_list) == 0:
-                print("No cameras found.")
+                logging.error("No cameras found.")
                 sys.exit(1)
 
             # Open the camera without using 'with' so it stays open
             camera = sdk.open_camera(camera_list[-1])
-            print(f"Camera {camera_list[0]} initialized.")
+            logging.info(f"Camera {camera_list[0]} initialized.")
 
             # Ensure the camera is properly disarmed before setting parameters
             if camera.is_armed:
-                print("Camera was already armed. Disarming first.")
+                logging.warning("Camera was already armed. Disarming first.")
                 camera.disarm()
 
             # Set camera parameters before arming
-            print("Setting camera parameters...")
-            camera.frames_per_trigger_zero_for_unlimited = 0
+            logging.info("Setting camera parameters...")
+            camera.frames_per_trigger_zero_for_unlimited = 1  # Capture one frame per software trigger
             camera.gain = config.CAMERA_PROPERTIES["gain"]
             camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
+            logging.debug(f"Camera gain set to {camera.gain}")
+            logging.debug(f"Camera exposure time set to {camera.exposure_time_us} us")
 
             # Arm the camera
             try:
+                logging.info("Arming the camera...")
                 camera.arm(2)
+                logging.debug(f"Camera is_armed: {camera.is_armed}")
             except Exception as e:
-                print(f"Error arming the camera: {e}")
+                logging.exception("Error arming the camera:")
                 camera.disarm()
                 camera.dispose()
                 sys.exit(1)
 
             if not camera.is_armed:
-                print("Camera failed to arm. Please disconnect and reconnect the camera.")
+                logging.error("Camera failed to arm. Please disconnect and reconnect the camera.")
                 camera.dispose()
                 sys.exit(1)
 
@@ -1950,30 +2005,59 @@ if __name__ == "__main__":
                 config.DIST = int(
                     min(config.CAMERA_DIMS) * config.NM_PER_PX * (1 - config.IMAGE_OVERLAP)
                 )
+                logging.debug(f"Config updated: {config.CAMERA_PROPERTIES}")
 
-                camera.issue_software_trigger()
-
-                print("App initializing...")
+                logging.info("App initializing...")
                 root = tk.Tk()
-                GUI_main = GUI(root, camera)
-                root.after(1000, GUI_main.auto_camera_settings)
+                GUI_main = None  # Initialize GUI_main before try-except
 
-                print("App starting")
-                root.mainloop()
+                try:
+                    GUI_main = GUI(root, camera)
+                    root.after(1000, GUI_main.auto_camera_settings)
+                    logging.info("App starting")
+                    root.mainloop()
+                except Exception as e:
+                    logging.exception("An exception occurred during GUI initialization or main loop:")
+                    # Ensure proper cleanup
+                    if GUI_main is not None:
+                        GUI_main.on_closing()
+                    else:
+                        # Attempt to disarm and dispose the camera
+                        try:
+                            if camera.is_armed:
+                                logging.info("Disarming the camera...")
+                                camera.disarm()
+                        except (TLCameraError, AttributeError):
+                            logging.exception("Error while disarming the camera during exception handling:")
+                        try:
+                            logging.info("Disposing the camera...")
+                            camera.dispose()
+                        except (TLCameraError, AttributeError):
+                            logging.exception("Error while disposing the camera during exception handling:")
+                    sys.exit(1)
 
-                print("Waiting for image acquisition thread to finish...")
-                GUI_main.image_acquisition_thread.stop()
-                GUI_main.image_acquisition_thread.join()
+                logging.info("Waiting for image acquisition thread to finish...")
+                if GUI_main.image_acquisition_thread.is_alive():
+                    GUI_main.image_acquisition_thread.stop()
+                    GUI_main.image_acquisition_thread.join()
 
-                print("Closing resources...")
+                logging.info("Closing resources...")
             except Exception as e:
-                print(f"An exception occurred: {e}")
+                logging.exception("An exception occurred during application execution:")
             finally:
                 # Ensure the camera is disarmed and disposed
-                if camera.is_armed:
-                    camera.disarm()
-                camera.dispose()
+                if not getattr(camera, 'disposed', False):
+                    try:
+                        logging.info("Disarming and disposing the camera...")
+                        camera.disarm()
+                        camera.dispose()
+                        camera.disposed = True  # Mark the camera as disposed
+                    except (TLCameraError, AttributeError) as e:
+                        logging.exception("Error while disarming or disposing the camera during final cleanup:")
+                else:
+                    logging.info("Camera already disposed.")
+                logging.info("App terminated. Goodbye!")
+
+
     except Exception as e:
-        print(f"An error occurred during camera initialization: {e}")
-    finally:
-        print("App terminated. Goodbye!")
+        logging.exception("An error occurred during camera initialization:")
