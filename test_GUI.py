@@ -32,6 +32,8 @@ class CanvasImage:
     """ Display and zoom image """
     def __init__(self, placeholder, path):
         """ Initialize the ImageFrame """
+        # To do - change the image scale so that it fits inside rectangle every time. Delete black space.
+        
         self.imscale = 1.0  # scale for the canvas image zoom, public for outer classes
         self.__delta = 1.3  # zoom magnitude
         self.__filter = Image.LANCZOS  # could be: NEAREST, BILINEAR, BICUBIC and ANTIALIAS
@@ -52,6 +54,29 @@ class CanvasImage:
                                 width=800, height=800)
         self.canvas.grid(row=0, column=0, sticky='nswe')
         self.canvas.update()  # wait till canvas is created
+        """ Scale the image to fit within the canvas initially and center it. """
+        # canvas_width = self.canvas.winfo_width()
+        # canvas_height = self.canvas.winfo_height()
+
+        # ############################################ Inputted code, may not work
+        # # Load the image using PIL
+        # self.__image = Image.open(image_path)
+        # self.imwidth, self.imheight = self.__image.size  # Original image dimensions
+        # self.imscale = 1.0  # Initial scale factor
+        # if canvas_width > 1 and canvas_height > 1:
+        #     # Calculate the scale factor based on canvas size and image size
+        #     scale_factor = min(canvas_width / self.imwidth, canvas_height / self.imheight)
+
+        #     # Set the initial scaling factor to make the image fully visible
+        #     self.imscale = scale_factor
+
+        #     # Resize the image based on the scale factor
+        #     new_width = int(self.imwidth * self.imscale)
+        #     new_height = int(self.imheight * self.imscale)
+        #     self.tkimage = self.__image.crop((0,0,new_width, new_height))
+        #     self.image_resized = self.tkimage.resize((new_width, new_height), Image.LANCZOS)
+        # ############################################
+
         hbar.configure(command=self.__scroll_x)  # bind scrollbars to the canvas
         vbar.configure(command=self.__scroll_y)
 
@@ -384,6 +409,9 @@ class ImageDisplay:
         # Create the fourth tab
         self.tab4 = ttk.Frame(notebook)
         notebook.add(self.tab4, text="Tab 4")
+        # Create the fourth tab
+        self.tab5 = ttk.Frame(notebook)
+        notebook.add(self.tab5, text="Tab 5")
 
         # Add content to the second tab
         label2 = tk.Label(self.tab2, text="This is Tab 2", font=("Arial", 16))
@@ -450,13 +478,16 @@ class ImageDisplay:
         self.root.columnconfigure(0, minsize=150)
         self.root.rowconfigure([0, 1], minsize=50)
 
-        # Canvas for displaying images
-        self.image_canvas = tk.Canvas(self.tab1, width=1400, height=600)
-        self.image_canvas.pack()
-
         # Image handling
         self.image_path = "Images/highresphoto.jpg"  # Replace with your image path
         self.original_image = Image.open(self.image_path)  # Get the image from file
+        self.imwidth, self.imheight = self.original_image.size  # Original image dimensions
+
+        # Canvas for displaying images
+        self.image_canvas = tk.Canvas(self.tab1, width=1400, height=600)
+        self.image_canvas.pack()
+        self.image_canvas_move = tk.Canvas(self.tab5, width=600, height=600)
+        self.image_canvas_move.pack()
 
         # Display the full image on the right and bind mouse motion
         self.tk_resized_image = self.original_image.resize(
@@ -469,6 +500,22 @@ class ImageDisplay:
         # Bind mouse movement on the full image area to trigger zooming
         self.image_canvas.bind("<Motion>", self.update_zoom_on_mouse_move)
 
+        ################################################ Imaging for click panning
+        # Moving around in zoom image. Distance moved depending on distance of click from center of canvas
+        # Initial zoom (1x in this case)
+        self.imscale = 1.0  
+        self.image_resized = self.original_image.resize((int(self.imwidth * self.imscale),
+                                                int(self.imheight * self.imscale)), Image.LANCZOS)
+        self.tk_image = ImageTk.PhotoImage(self.image_resized)
+
+        # Add image to the canvas
+        self.imageid = self.image_canvas_move.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+        self.image_canvas_move.config(scrollregion=self.image_canvas_move.bbox(self.imageid))
+
+        # Bind the mouse click event
+        self.image_canvas_move.bind("<Button-1>", self._on_click)
+        ################################################
+
         # self.plot_histograms(self.tab4)
 
         self.create_control_buttons()
@@ -476,12 +523,26 @@ class ImageDisplay:
         self.create_sliders()
 
         self.create_360_wheel()
-    '''
-    Random number generator for die.
-    '''
-    def randNum(self):
-        self.lbl_roll['text'] = random.randint(1,6)
 
+    ################################################ Camera move based on click position
+    def _on_click(self, event):
+        """ Handle a mouse click to move the image """
+        # Get the position of the click
+        click_x, click_y = event.x, event.y
+
+        # Calculate the center of the canvas
+        canvas_center_x = self.image_canvas_move.winfo_width() / 2
+        canvas_center_y = self.image_canvas_move.winfo_height() / 2
+
+        # Calculate the distance and direction from the center of the canvas
+        move_x = click_x - canvas_center_x
+        move_y = click_y - canvas_center_y
+
+        # Move the image to the new position, respecting the boundaries
+        ##### replace with move function for liveview camera with move_x and move_y parameters
+        self.image_canvas_move.move(self.imageid, -move_x, -move_y)
+    ################################################
+            
     def update_zoom_on_mouse_move(self, event):
         mouse_x = event.x
         mouse_y = event.y
@@ -711,6 +772,12 @@ class ImageDisplay:
 
     def update_var2(self, value):
         print(f"Dummy Variable 2 updated to: {value}")
+    
+    '''
+    Random number generator for die.
+    '''
+    def randNum(self):
+        self.lbl_roll['text'] = random.randint(1,6)
 
     # Create a function to get the entry value
     def get_entry_value(self, event=None):
