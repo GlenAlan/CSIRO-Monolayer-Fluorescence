@@ -39,11 +39,13 @@ class CanvasImage:
         self.path = path  # path to the image, should be public for outer classes
         # Create ImageFrame in placeholder widget
         self.__imframe = ttk.Frame(placeholder)  # placeholder of the ImageFrame object
+        
         # Vertical and horizontal scrollbars for canvas
         hbar = AutoScrollbar(self.__imframe, orient='horizontal')
         vbar = AutoScrollbar(self.__imframe, orient='vertical')
         hbar.grid(row=1, column=0, sticky='we')
         vbar.grid(row=0, column=1, sticky='ns')
+
         # Create canvas and bind it with scrollbars. Public for outer classes
         self.canvas = tk.Canvas(self.__imframe, highlightthickness=0,
                                 xscrollcommand=hbar.set, yscrollcommand=vbar.set,
@@ -52,6 +54,7 @@ class CanvasImage:
         self.canvas.update()  # wait till canvas is created
         hbar.configure(command=self.__scroll_x)  # bind scrollbars to the canvas
         vbar.configure(command=self.__scroll_y)
+
         # Bind events to the Canvas
         self.canvas.bind('<Configure>', lambda event: self.__show_image())  # canvas is resized
         self.canvas.bind('<ButtonPress-1>', self.__move_from)  # remember canvas position
@@ -59,9 +62,11 @@ class CanvasImage:
         self.canvas.bind('<MouseWheel>', self.__wheel)  # zoom for Windows and MacOS, but not Linux
         self.canvas.bind('<Button-5>',   self.__wheel)  # zoom for Linux, wheel scroll down
         self.canvas.bind('<Button-4>',   self.__wheel)  # zoom for Linux, wheel scroll up
+        self.canvas.bind('<Double-Button-1>', self.__double_click)  # handle double-click for coordinates
         # Handle keystrokes in idle mode, because program slows down on a weak computers,
         # when too many key stroke events in the same time
         self.canvas.bind('<Key>', lambda event: self.canvas.after_idle(self.__keystroke, event))
+
         # Decide if this image huge or not
         self.__huge = False  # huge or not
         self.__huge_size = 14000  # define size of the huge image
@@ -80,6 +85,7 @@ class CanvasImage:
                            self.__offset,
                            self.__image.tile[0][3]]  # list of arguments to the decoder
         self.__min_side = min(self.imwidth, self.imheight)  # get the smaller image side
+
         # Create image pyramid
         self.__pyramid = [self.smaller()] if self.__huge else [Image.open(self.path)]
         # Set ratio coefficient for image pyramid
@@ -222,6 +228,22 @@ class CanvasImage:
         """ Drag (move) canvas to the new position """
         self.canvas.scan_dragto(event.x, event.y, gain=1)
         self.__show_image()  # zoom tile and show it on the canvas
+
+    def __double_click(self, event):
+        """ Get the original pixel coordinates of the image on double-click """
+        # Get the canvas coordinates (including any panning/scrolling)
+        x = self.canvas.canvasx(event.x) - self.canvas.coords(self.container)[0]
+        y = self.canvas.canvasy(event.y) - self.canvas.coords(self.container)[1]
+
+        # Scale back to the original image size by dividing by the current zoom (imscale)
+        x_original = x / self.imscale
+        y_original = y / self.imscale
+
+        # Ensure the coordinates are within the bounds of the original image size
+        x_original = max(0, min(self.imwidth, x_original))
+        y_original = max(0, min(self.imheight, y_original))
+
+        print(f"Original image coordinates: ({int(x_original)}, {int(y_original)})")
 
     def outside(self, x, y):
         """ Checks if the point (x,y) is outside the image area """
@@ -372,14 +394,12 @@ class ImageDisplay:
         self.root.rowconfigure([0, 1], minsize=50)
 
         # Buttons for the second tab
-        self.btn_roll = tk.Button(self.tab2, text = "Roll!", command = self.randNum)
-        self.btn_roll.pack()
-        self.lbl_roll = tk.Label(self.tab2)
-        self.lbl_roll.pack()
-        self.cat_button = tk.Button(self.tab2, text="~ Magic button ~", command=self.show_cat_image)
-        self.cat_button.pack(pady=20)
-        self.cat_canvas = tk.Canvas(self.tab2, width=100, height=100)
-        self.cat_canvas.pack(pady=20)
+        self.btn_roll = tk.Button(self.tab3, text = "Roll!", command = self.randNum)
+        self.btn_roll.grid(row=2, column=0)
+        self.lbl_roll = tk.Label(self.tab3)
+        self.lbl_roll.grid(row=3, column=0)
+        self.cat_button = tk.Button(self.tab3, text="~ Magic button ~", command=self.show_cat_image)
+        self.cat_button.grid(row=4, column=0, pady=20)
 
         # Test zoomable image in second tab
         self.zoom_frame = tk.Frame(self.tab2, width=1000, height=1000)
@@ -435,7 +455,7 @@ class ImageDisplay:
         self.image_canvas.pack()
 
         # Image handling
-        self.image_path = "Images/highlighted_monolayers_2024-09-13_141404.jpg"  # Replace with your image path
+        self.image_path = "Images/highresphoto.jpg"  # Replace with your image path
         self.original_image = Image.open(self.image_path)  # Get the image from file
 
         # Display the full image on the right and bind mouse motion
@@ -703,6 +723,9 @@ class ImageDisplay:
         cat_image = cat_image.resize((100, 100))  # Resize the image if needed
         cat_photo = ImageTk.PhotoImage(cat_image)
 
+        self.cat_canvas = tk.Canvas(self.tab3, width=100, height=100)
+        self.cat_canvas.grid(row=4, column=0, pady=20)
+
         self.cat_button.destroy()
 
         self.cat_canvas.delete("all")
@@ -723,7 +746,7 @@ class ImageDisplay:
 
 # Start the Tkinter event loop
 if __name__ == "__main__":
-    image_path = 'Images/highlighted_monolayers_2024-09-13_141404.jpg'  # place path to your image here
+    image_path = 'Images/highresphoto.jpg'  # place path to your image here
     root = tk.Tk()
     poo = ImageDisplay(root)
     # app = Zoom_Advanced(poo.zoom_frame, path=image_path)
