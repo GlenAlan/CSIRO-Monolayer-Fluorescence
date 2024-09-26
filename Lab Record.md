@@ -204,11 +204,8 @@ To implement the lens calibration I used the data supplied from the camera to de
 # 25/09/2024
 
 ### Lachlan
-- Created second option of zoomed in image from hovering over large stitched image.
-- Attempted to initialise first zoomed image option unzoomed without success.
-- Created double click option to return the position on the zoomed image which will then be used to move the stage to the desired location for live viewing.
-- Added move option for a zoomed in image based on the direction and distance of mouse click from the center of the image canvas.
-- Started drawing scale for live view.
+
+To provide some motivation for the design of the image zooming, I created a second option for how images are zoomed in through hovering over the larger stitched image and a zoomed in image displaying where the mouse is located. I then attempted to initialise the first zoomed image option to become unzoomed without success. The image pyramid and tiling was proving to be difficult to set the desired initial zoom. I created a double click option to return the position on the zoomed image which will then be used to move the stage to the desired location for live viewing. This was based on the distance of the mouse from the center of the canvas. I did run into some positioning issues from coordinates and zoom factors but I resolved these by changing the mouse click to give the canvas position, not the image pixel location. This will be implemented into the main GUI to move the live image in the direction and distance of the mouse click from the center of the image canvas. Today I also commenced drawing a scale for the live view image to tell us the true distance of the image being shown.
 
 ### Glen
 - Autofocus
@@ -224,6 +221,14 @@ TODO:
 - [ ] Allow adjustment of other config parameters in extra window
 - [ ] Refine quality parameters
 - [X] Begin tidying
+
+# 26/09/2024
+
+### Lachlan
+
+We showed Matt the progress of our project, highlighting all the new features we added. I continued working on the scale showing measurement similar to a ruler but adding a dynamic feature so it will change based on the scale factor of nanometers to pixels. I adjusted the tick spacing and units based on the zoom. All that needs to be done with this is to implement it into the main GUI with scale conversion based on the zoom of the microscope and positioned below the canvas appropriately.
+
+### Glen
 
 ### Remainder of the placement
 

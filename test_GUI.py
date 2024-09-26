@@ -465,7 +465,7 @@ class ImageDisplay:
         self.imwidth, self.imheight = self.original_image.size  # Original image dimensions
 
         # Canvas for displaying images
-        self.image_canvas = tk.Canvas(self.tab1, width=1400, height=600)
+        self.image_canvas = tk.Canvas(self.tab1, width=1400, height=400)
         self.image_canvas.pack()
         self.image_canvas_move = tk.Canvas(self.tab5, width=600, height=600)
         self.image_canvas_move.pack()
@@ -495,16 +495,38 @@ class ImageDisplay:
         # Bind the mouse click event
         self.image_canvas_move.bind("<Button-1>", self._on_click)
 
-        tick_width = 500
-        tick_height = 300
-        tick_scale = tk.Canvas(self.tab1, width=tick_width, height=tick_height)
-        tick_scale.pack()
+        ############################################## Start
+        # Create the tick scale canvas
+        self.tick_width = 600
+        self.tick_height = 100
+        self.tick_scale = tk.Canvas(self.tab1, width=self.tick_width, height=self.tick_height)
+        self.tick_scale.pack(side='left', padx=10)
 
-        # Draw a rectangle as an example of an image placeholder
-        tick_scale.create_rectangle(50, 50, tick_width-50, tick_height-100, outline='blue', fill='lightblue')
+        # Default pixels_per_nm value (50 pixels = 10nm)
+        self.pixels_per_nm = 5
 
-        # Add a measurement scale below the image
-        self.draw_scale(tick_scale, tick_width, tick_height - 20)
+        # Set the range for the logarithmic scale
+        self.min_log_value = -7  # Represents 0.0000001 pixels per nm
+        self.max_log_value = np.log10(250)  # Represents 250 pixels per nm
+
+        # Create a label to display the current value
+        self.pixels_per_nm_label = tk.Label(self.tab1, text=f"Pixels per nm: {self.pixels_per_nm:.2e}")
+        self.pixels_per_nm_label.pack(side='left', pady=5)
+
+        # Create a logarithmic slider
+        self.pixels_per_nm_slider = ttk.Scale(
+            self.tab1,
+            from_=self.min_log_value,
+            to=self.max_log_value,
+            orient='horizontal',
+            command=self.update_pixels_per_nm,
+            length=800
+        )
+        self.pixels_per_nm_slider.set(math.log10(self.pixels_per_nm))  # Set default value on the slider
+        self.pixels_per_nm_slider.pack(padx=10, pady=10)
+
+        self.draw_scale(self.pixels_per_nm)
+        ############################################## End
 
         # self.plot_histograms(self.tab4)
 
@@ -514,23 +536,153 @@ class ImageDisplay:
 
         self.create_360_wheel()
 
-    def draw_scale(canvas, width, height, nm_per_tick=10):
+    ##############################################
+    def draw_scale(self, pixels_per_nm):
         # Parameters for the scale
         tick_length = 10  # Length of the major ticks
-        scale_start = 0   # Starting point in nm (0nm)
-        scale_end = 100   # End point in nm (100nm)
-        
-        # Number of ticks based on the canvas width
-        total_ticks = int((scale_end - scale_start) / nm_per_tick)
 
-        # Space between each tick mark
-        tick_spacing = width / total_ticks
-        
-        # Draw scale
+        # Margins to avoid clipping
+        side_margin = 20  # Adjust the margin as needed
+        top_margin = 10  # Adjust this value to ensure visibility of the line
+
+        # Calculate the total width in nm that the canvas can represent
+        scale_width_in_nm = (self.tick_width - 2 * side_margin) / pixels_per_nm  # Total nm the canvas can represent
+
+        # Determine the number of ticks to display and appropriate spacing
+        if scale_width_in_nm < 5:
+            nm_per_tick = 1  # Minimum tick spacing
+            scale_unit = "nm"  # Set scale unit to millimeters
+        else:
+            num_ticks = scale_width_in_nm / 10  # Initial guess for number of ticks
+            milli_scale_factor = 1e6
+            micro_scale_factor = 1e3
+
+            # Check if we should switch to micrometers
+            if num_ticks > 800000:  # If more than 500,000 ticks, switch to millimeters
+                # Adjust tick distance based on the number of ticks
+                num_ticks_adjusted = num_ticks/milli_scale_factor
+                if num_ticks_adjusted > 400:
+                    nm_per_tick = 500
+                elif num_ticks_adjusted > 150:
+                    nm_per_tick = 200
+                elif num_ticks_adjusted > 80:
+                    nm_per_tick = 100
+                elif num_ticks_adjusted > 40:
+                    nm_per_tick = 50
+                elif num_ticks_adjusted > 15:
+                    nm_per_tick = 20
+                elif num_ticks_adjusted > 8:
+                    nm_per_tick = 10
+                elif num_ticks_adjusted > 4:
+                    nm_per_tick = 5
+                elif num_ticks_adjusted > 2:
+                    nm_per_tick = 2
+                else:
+                    nm_per_tick = 1
+                nm_per_tick *= milli_scale_factor  # Adjusts tick spacing to account for milli scale
+                scale_unit = "mm"  # Set scale unit to millimeters
+            elif num_ticks > 800:  # If more than 500 ticks, switch to micrometers
+                num_ticks_adjusted = num_ticks/micro_scale_factor
+                if num_ticks_adjusted > 400:
+                    nm_per_tick = 500
+                elif num_ticks_adjusted > 150:
+                    nm_per_tick = 200
+                elif num_ticks_adjusted > 80:
+                    nm_per_tick = 100
+                elif num_ticks_adjusted > 40:
+                    nm_per_tick = 50
+                elif num_ticks_adjusted > 15:
+                    nm_per_tick = 20
+                elif num_ticks_adjusted > 8:
+                    nm_per_tick = 10
+                elif num_ticks_adjusted > 4:
+                    nm_per_tick = 5
+                elif num_ticks_adjusted > 2:
+                    nm_per_tick = 2
+                else:
+                    nm_per_tick = 1
+                nm_per_tick *= micro_scale_factor  # Adjusts tick spacing to account for micro scale
+                scale_unit = "µm"  # Set scale unit to micrometers
+            else: # If it is less than 500 ticks, it is in the nm range
+                num_ticks_adjusted = num_ticks # number of ticks was estimated in nm so no need to adjust
+                if num_ticks_adjusted > 400:
+                    nm_per_tick = 500
+                elif num_ticks_adjusted > 150:
+                    nm_per_tick = 200
+                elif num_ticks_adjusted > 80:
+                    nm_per_tick = 100
+                elif num_ticks_adjusted > 40:
+                    nm_per_tick = 50
+                elif num_ticks_adjusted > 15:
+                    nm_per_tick = 20
+                elif num_ticks_adjusted > 8:
+                    nm_per_tick = 10
+                elif num_ticks_adjusted > 4:
+                    nm_per_tick = 5
+                elif num_ticks_adjusted > 2:
+                    nm_per_tick = 2
+                else:
+                    nm_per_tick = 1  # Default to 1nm per tick if too small
+                scale_unit = "nm"  # Set scale unit to nanometers
+
+        # Calculate the total number of ticks to be drawn
+        total_ticks = int(scale_width_in_nm / nm_per_tick)
+
+        # Calculate the tick spacing based on the desired number of ticks
+        tick_spacing = nm_per_tick * pixels_per_nm  # Adjust tick spacing according to pixels per nm ratio
+
+        # Clear the canvas before redrawing
+        self.tick_scale.delete("all")
+
+        # Draw a line that goes through the tops of all the ticks
+        self.tick_scale.create_line(side_margin, top_margin, self.tick_width - side_margin, top_margin, fill='black', width=2)
+
+        # Draw tick marks and numbers based on the new scaling
         for i in range(total_ticks + 1):
-            x = i * tick_spacing
-            canvas.create_line(x, height, x, height - tick_length, fill='black')
-            canvas.create_text(x, height - tick_length - 10, text=str(i * nm_per_tick) + 'nm', anchor='s', font=('Arial', 8))
+            x = side_margin + i * tick_spacing  # Adjust x to account for margin
+            
+            # Draw the major tick mark
+            self.tick_scale.create_line(x, top_margin, x, top_margin + tick_length, fill='black')
+            # Adjust text based on the unit being used
+            if (scale_unit=='mm'):
+                value = i * nm_per_tick / 1e6
+            elif (scale_unit=='µm'):
+                value = i * nm_per_tick / 1e3  
+            else:
+                value = i * nm_per_tick
+            self.tick_scale.create_text(x, top_margin + tick_length + 20, text=int(value), anchor='s', font=('Arial', 8))
+
+        # Add the unit label below the entire scale, centered
+        self.tick_scale.create_text(side_margin, top_margin + tick_length + 40, text=scale_unit, font=('Arial', 10), anchor='n')
+
+    def update_pixels_per_nm(self, value):
+        # Convert log value back to linear scale
+        log_value = float(value)
+        self.pixels_per_nm = 10 ** log_value  # Convert log scale back to linear
+        self.pixels_per_nm_label.config(text=f"Pixels per nm: {self.pixels_per_nm:.2e}")
+
+        # Redraw the scale with the new pixels_per_nm value
+        self.draw_scale(self.pixels_per_nm)
+
+    # def update_pixels_per_nm(self, event):
+    #     # Get the value from the entry widget
+    #     try:
+    #         entered_value = float(self.pixels_per_nm_entry.get())  # Convert entered value to float
+    #         if entered_value < 1e-7 or entered_value > 250: # If the number is outside the bounds for this particular scale
+    #             pass
+    #         elif entered_value > 0:  # Ensure it's a positive number
+    #             self.pixels_per_nm = entered_value
+    #         else:
+    #             raise ValueError
+    #     except ValueError:
+    #         # If the input is invalid, set the entry back to the default value
+    #         self.pixels_per_nm_entry.delete(0, tk.END)
+    #         self.pixels_per_nm_entry.insert(0, str(self.pixels_per_nm))
+        
+        # Redraw the scale with the new pixels_per_nm value
+        self.draw_scale(self.pixels_per_nm)
+
+    ##############################################
 
     def _on_click(self, event):
         """ Handle a mouse click to move the image """
