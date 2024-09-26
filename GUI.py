@@ -470,7 +470,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
                 focuses.append(get_focus(frame))
 
 
-        r = random.randint(-20, 4)
+        r = random.randint(-4, 4)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
@@ -506,6 +506,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     x, y = start
     direction = 1
 
+    gui.root.after(0, lambda: gui.auto_focus_button.config(state='disabled'))
     auto_focus(mcm301obj, image_queue)
     
     while y < end[1]:
@@ -522,6 +523,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     print("\nImage capture complete!")
     print("Waiting for image processing to complete...")
     gui.root.after(0, lambda: gui.update_progress(92, "Image stitching..."))
+    gui.root.after(0, lambda: gui.auto_focus_button.config(state='normal'))
     frame_queue.put(None)
 
 
@@ -543,11 +545,13 @@ def auto_focus(mcm301obj, image_queue, params=None):
             best_z = int(z_i)
     move(mcm301obj, [best_z], (6,))
 
-def initial_auto_focus(mcm301obj, image_queue, n = 5):
-    d = 2e7/config.CAMERA_PROPERTIES['lens']
+def initial_auto_focus(gui, mcm301obj, image_queue, n = 5):
+    gui.root.after(0, lambda: gui.auto_focus_button.config(state='disabled'))
+    d = 1e7/config.CAMERA_PROPERTIES['lens']
     while d > 10e4/config.CAMERA_PROPERTIES['lens']:
         auto_focus(mcm301obj, image_queue, params=[int(d), n])
         d = d/(n-1)
+    gui.root.after(0, lambda: gui.auto_focus_button.config(state='normal'))
 
 def get_focus(image):
     """
@@ -1594,21 +1598,47 @@ class GUI:
     def create_auto_focus(self):
 
         auto_focus_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
-        auto_focus_frame.grid(row=1, column=3, columnspan=1, padx=10, pady=10, sticky='nsew')
+        auto_focus_frame.grid(row=1, column=3, columnspan=2, padx=10, pady=10, sticky='nsew')
 
         self.auto_focus_button = tk.Button(
             auto_focus_frame,
             text="Auto Focus",
             command=lambda: threading.Thread(
                     target=initial_auto_focus,
-                    args=(self.stage_controller, self.image_acquisition_thread._image_queue),
+                    args=(self, self.stage_controller, self.image_acquisition_thread._image_queue),
                     daemon=True
                 ).start(),
             bg=config.BUTTON_COLOR,
             fg=config.TEXT_COLOR,
             font=config.BUTTON_FONT
         )
-        self.auto_focus_button.grid(row=0, column=0, padx=5, pady=5)
+        self.auto_focus_button.grid(row=0, column=1, padx=5, pady=5)
+
+        self.auto_focus_on = tk.BooleanVar(value=config.AUTOFOCUS) 
+
+        # Checkbutton for enabling/disabling auto focus
+        self.auto_focus_checkbox = tk.Checkbutton(
+            auto_focus_frame,
+            text="Auto Focus Enabled",
+            variable=self.auto_focus_on,
+            command=self.toggle_auto_focus,
+            onvalue=True, 
+            offvalue=False, 
+            height=2, 
+            width=20,
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR, 
+            font=config.LABEL_FONT,
+            activebackground=config.THEME_COLOR,
+            selectcolor=config.THEME_COLOR,
+        )
+        self.auto_focus_checkbox.grid(row=0, column=0, padx=5, pady=5)
+
+        config.AUTOFOCUS = self.auto_focus_on.get()
+
+    def toggle_auto_focus(self):
+        config.AUTOFOCUS = self.auto_focus_on.get()
+        print(f"Auto focus set to: {config.AUTOFOCUS}")
 
 
     def update_lens(self, event=None):
