@@ -500,7 +500,6 @@ class ImageDisplay:
         # Bind mouse movement on the full image area to trigger zooming
         self.image_canvas.bind("<Motion>", self.update_zoom_on_mouse_move)
 
-        ################################################ Imaging for click panning
         # Moving around in zoom image. Distance moved depending on distance of click from center of canvas
         # Initial zoom (1x in this case)
         self.imscale = 1.0  
@@ -514,7 +513,17 @@ class ImageDisplay:
 
         # Bind the mouse click event
         self.image_canvas_move.bind("<Button-1>", self._on_click)
-        ################################################
+
+        tick_width = 500
+        tick_height = 300
+        tick_scale = tk.Canvas(self.tab1, width=tick_width, height=tick_height)
+        tick_scale.pack()
+
+        # Draw a rectangle as an example of an image placeholder
+        tick_scale.create_rectangle(50, 50, tick_width-50, tick_height-100, outline='blue', fill='lightblue')
+
+        # Add a measurement scale below the image
+        self.draw_scale(tick_scale, tick_width, tick_height - 20)
 
         # self.plot_histograms(self.tab4)
 
@@ -524,7 +533,24 @@ class ImageDisplay:
 
         self.create_360_wheel()
 
-    ################################################ Camera move based on click position
+    def draw_scale(canvas, width, height, nm_per_tick=10):
+        # Parameters for the scale
+        tick_length = 10  # Length of the major ticks
+        scale_start = 0   # Starting point in nm (0nm)
+        scale_end = 100   # End point in nm (100nm)
+        
+        # Number of ticks based on the canvas width
+        total_ticks = int((scale_end - scale_start) / nm_per_tick)
+
+        # Space between each tick mark
+        tick_spacing = width / total_ticks
+        
+        # Draw scale
+        for i in range(total_ticks + 1):
+            x = i * tick_spacing
+            canvas.create_line(x, height, x, height - tick_length, fill='black')
+            canvas.create_text(x, height - tick_length - 10, text=str(i * nm_per_tick) + 'nm', anchor='s', font=('Arial', 8))
+
     def _on_click(self, event):
         """ Handle a mouse click to move the image """
         # Get the position of the click
@@ -541,7 +567,6 @@ class ImageDisplay:
         # Move the image to the new position, respecting the boundaries
         ##### replace with move function for liveview camera with move_x and move_y parameters
         self.image_canvas_move.move(self.imageid, -move_x, -move_y)
-    ################################################
             
     def update_zoom_on_mouse_move(self, event):
         mouse_x = event.x

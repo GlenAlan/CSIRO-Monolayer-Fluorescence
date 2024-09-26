@@ -203,6 +203,13 @@ To implement the lens calibration I used the data supplied from the camera to de
 
 # 25/09/2024
 
+### Lachlan
+- Created second option of zoomed in image from hovering over large stitched image.
+- Attempted to initialise first zoomed image option unzoomed without success.
+- Created double click option to return the position on the zoomed image which will then be used to move the stage to the desired location for live viewing.
+- Added move option for a zoomed in image based on the direction and distance of mouse click from the center of the image canvas.
+- Started drawing scale for live view.
+
 ### Glen
 - Autofocus
 - Fixed Auto Exposure
