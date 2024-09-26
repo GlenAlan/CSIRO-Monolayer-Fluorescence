@@ -8,6 +8,7 @@ import queue
 import operator
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+import logging
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -22,7 +23,7 @@ from MCM301_COMMAND_LIB import *
 import config
 
 # Thorlabs TSI SDK imports
-from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame
+from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame, TLCameraError
 from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
 from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
 
@@ -121,8 +122,7 @@ def stage_setup(home=True):
     print("connect ", sn)
     hdl = mcm301obj.open(sn, 115200, 3)
     if hdl < 0:
-        print("open ", sn, " failed. hdl is ", hdl)
-        exit()
+        raise ConnectionError("Failed to connect to the stage controller.")
 
     # Ensure the device is successfully opened
     if mcm301obj.is_open(sn) == 0:
@@ -297,16 +297,18 @@ class LiveViewCanvas(tk.Canvas):
 
 class ImageAcquisitionThread(threading.Thread):
     def __init__(self, camera, rotation_angle=0):
-        # type: (TLCamera, float) -> ImageAcquisitionThread
         super(ImageAcquisitionThread, self).__init__()
         self._camera = camera
         self._previous_timestamp = 0
         self._rotation_angle = rotation_angle  # New parameter for rotation
 
+        logging.debug("Initializing ImageAcquisitionThread...")
+
         # setup color processing if necessary
         if self._camera.camera_sensor_type != SENSOR_TYPE.BAYER:
             # Sensor type is not compatible with the color processing library
             self._is_color = False
+            logging.debug("Camera is monochrome.")
         else:
             self._mono_to_color_sdk = MonoToColorProcessorSDK()
             self._image_width = self._camera.image_width_pixels
@@ -319,11 +321,13 @@ class ImageAcquisitionThread(threading.Thread):
                 self._camera.bit_depth
             )
             self._is_color = True
+            logging.debug("Camera is color. MonoToColorProcessor initialized.")
 
         self._bit_depth = camera.bit_depth
         self._camera.image_poll_timeout_ms = 0  # Do not want to block for long periods of time
         self._image_queue = queue.Queue(maxsize=2)
         self._stop_event = threading.Event()
+        logging.debug("ImageAcquisitionThread initialized.")
 
     def get_output_queue(self):
         return self._image_queue
@@ -375,25 +379,32 @@ class ImageAcquisitionThread(threading.Thread):
 
         return pil_image
 
-
     def run(self):
-        while not self._stop_event.is_set():
-            try:
-                frame = self._camera.get_pending_frame_or_null()
-                if frame is not None:
-                    if self._is_color:
-                        pil_image = self._get_color_image(frame)
+            logging.info("Image acquisition thread started.")
+            while not self._stop_event.is_set():
+                try:
+                    self._camera.issue_software_trigger()
+                    frame = self._camera.get_pending_frame_or_null()
+                    if frame is not None:
+                        # logging.debug("Frame received.")
+                        if self._is_color:
+                            pil_image = self._get_color_image(frame)
+                        else:
+                            pil_image = self._get_image(frame)
+                        self._image_queue.put_nowait(pil_image)
                     else:
-                        pil_image = self._get_image(frame)
-                    self._image_queue.put_nowait(pil_image)
-            except queue.Full:
-                # No point in keeping this image around when the queue is full, let's skip to the next one
-                pass
-            except Exception as error:
-                print("Encountered error: {error}, image acquisition will stop.".format(error=error))
-                break
-        print("Image acquisition has stopped")
-        if self._is_color:
-            self._mono_to_color_processor.dispose()
-            self._mono_to_color_sdk.dispose()
-
+                        # logging.debug("No frame received. Retrying...")
+                        time.sleep(0.01)
+                except TLCameraError as error:
+                    logging.exception("Camera error encountered in image acquisition thread:")
+                    break
+                except queue.Full:
+                    # logging.warning("Image queue is full. Dropping frame.")
+                    pass
+                except Exception as error:
+                    logging.exception("Encountered error in image acquisition thread:")
+                    break
+            logging.info("Image acquisition thread has stopped.")
+            if self._is_color:
+                self._mono_to_color_processor.dispose()
+                self._mono_to_color_sdk.dispose()

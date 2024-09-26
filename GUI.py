@@ -31,9 +31,10 @@ import config
 from MCM301_COMMAND_LIB import *
 
 # Thorlabs TSI SDK imports
-from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame
+from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame, TLCameraError
 from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
 from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
+
 
 # Windows-specific setup
 try:
@@ -41,6 +42,21 @@ try:
     configure_path()
 except ImportError:
     configure_path = None
+
+
+
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,  # Set to DEBUG to capture all types of logs
+    format='%(asctime)s [%(levelname)s] %(threadName)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Log to console
+        logging.FileHandler('app_debug.log', mode='w')  # Log to a file
+    ]
+)
+
 
 
 def image_to_stage(center_coords, start):
@@ -52,8 +68,6 @@ class LiveViewCanvas(tk.Canvas):
     def __init__(self, parent, image_queue):
         super().__init__(parent, bg=config.THEME_COLOR, highlightthickness=0)
         self.image_queue = image_queue
-        self._image_width = 0
-        self._image_height = 0
         self.is_active = True  # Initialize attribute to control image updates
         self.bind("<Configure>", self.on_resize)  # Bind resizing event
         self._display_image()
@@ -80,37 +94,47 @@ class LiveViewCanvas(tk.Canvas):
         self.after(config.UPDATE_DELAY, self._display_image)  # Continue updating the image
 
     def update_image_display(self, image):
-        """Resize image based on canvas size while maintaining aspect ratio."""
+        # Store the original image size
+        self.original_image_width = image.width
+        self.original_image_height = image.height
+        self.current_image = image  # Store the current image
+
+        # Get the current size of the canvas
         canvas_width = self.winfo_width()
         canvas_height = self.winfo_height()
 
-        # Convert PIL Image to OpenCV format
-        image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGBA2BGRA)
+        # Avoid division by zero
+        if canvas_width == 0 or canvas_height == 0:
+            return
 
-        # Calculate aspect ratio
-        aspect = image_cv.shape[1] / image_cv.shape[0]
+        # Compute the scaling factors to fit the image to the canvas
+        scale_x = canvas_width / self.original_image_width
+        scale_y = canvas_height / self.original_image_height
+        self.scale = min(scale_x, scale_y)
 
-        if canvas_width / aspect < canvas_height:
-            new_width = canvas_width
-            new_height = int(canvas_width / aspect)
-        else:
-            new_height = canvas_height
-            new_width = int(canvas_height * aspect)
+        # Resize the image accordingly
+        new_width = int(self.original_image_width * self.scale)
+        new_height = int(self.original_image_height * self.scale)
+        self.displayed_image = image.resize((new_width, new_height), Image.LANCZOS)
 
-        # Resize using OpenCV for speed
-        resized_image = cv2.resize(image_cv, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+        # Store the displayed image size
+        self.displayed_image_width = new_width
+        self.displayed_image_height = new_height
 
-        # Convert back to PIL Image
-        resized_pil = Image.fromarray(cv2.cvtColor(resized_image, cv2.COLOR_BGRA2RGBA))
+        # Clear the canvas
+        self.delete("all")
 
-        self._image = ImageTk.PhotoImage(master=self, image=resized_pil)
-        self.create_image(0, 0, image=self._image, anchor='nw')
+        # Update the image on the canvas
+        self.photo_image = ImageTk.PhotoImage(self.displayed_image)
+        # Center the image on the canvas
+        self.image_x0 = (canvas_width - new_width) // 2
+        self.image_y0 = (canvas_height - new_height) // 2
+        self.create_image(self.image_x0, self.image_y0, anchor='nw', image=self.photo_image)
 
     def on_resize(self, event):
-        """Handle canvas resizing."""
-        self._image_width = event.width
-        self._image_height = event.height
-        self._display_image()  # Update display to fit new canvas size
+        # Redraw the image when the canvas is resized
+        if hasattr(self, 'current_image'):
+            self.update_image_display(self.current_image)
 
 
 def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
@@ -503,10 +527,11 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
 
 def auto_focus(mcm301obj, image_queue, params=None):
     z = get_pos(mcm301obj, (6,))[0]
+    lens_ajustment_factor = 20/config.CAMERA_PROPERTIES['lens']
     if params:
         z_range = np.linspace(z-params[0], z+params[0], params[1]) 
     else:
-        z_range = np.linspace(z-config.FOCUS_RANGE, z+config.FOCUS_RANGE, config.FOCUS_STEPS)
+        z_range = np.linspace(z-int(config.FOCUS_RANGE*lens_ajustment_factor), z+int(config.FOCUS_RANGE*lens_ajustment_factor), config.FOCUS_STEPS)
     best_z = z
     best_focus = 0
     for z_i in z_range:
@@ -518,11 +543,10 @@ def auto_focus(mcm301obj, image_queue, params=None):
             best_z = int(z_i)
     move(mcm301obj, [best_z], (6,))
 
-def initial_auto_focus(mcm301obj, image_queue):
-    n = 4
-    d = 1e6
-    while d > 5e3:
-        auto_focus(mcm301obj, image_queue, params=[d, n])
+def initial_auto_focus(mcm301obj, image_queue, n = 5):
+    d = 2e7/config.CAMERA_PROPERTIES['lens']
+    while d > 10e4/config.CAMERA_PROPERTIES['lens']:
+        auto_focus(mcm301obj, image_queue, params=[int(d), n])
         d = d/(n-1)
 
 def get_focus(image):
@@ -756,18 +780,19 @@ class GUI:
         self.root.title('Camera Control Interface')
         self.root.configure(bg=config.THEME_COLOR)
 
+
+        # Initialize the stage controller
+        self.stage_controller = stage_setup(home=False)
+
         # Initialize camera and image acquisition thread
         self.camera = camera
         self.image_acquisition_thread = ImageAcquisitionThread(self.camera, rotation_angle=270)
         self.image_acquisition_thread.start()
 
-
         self.frame_queue = queue.Queue(maxsize=config.MAX_QUEUE_SIZE)
 
         self.image_references = []
 
-        # Initialize the stage controller
-        self.stage_controller = stage_setup(home=False)
 
         # Create main frame with two columns
         self.main_frame = tk.Frame(self.root, bg=config.THEME_COLOR)
@@ -792,6 +817,7 @@ class GUI:
         # Live camera view in the left frame
         self.live_view_canvas = LiveViewCanvas(self.left_frame, self.image_acquisition_thread._image_queue)
         self.live_view_canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.live_view_canvas.bind("<Button-1>", self.move_on_click)
 
         # Initialize live position labels in the left frame
         self.position_frame = tk.Frame(self.left_frame, bg=config.THEME_COLOR)
@@ -811,6 +837,55 @@ class GUI:
 
         # Handle window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def move_on_click(self, event):
+        """Handle a mouse click to move the image."""
+        # Access the LiveViewCanvas instance
+        canvas = self.live_view_canvas
+
+        # Check if the image attributes are available
+        if not all(hasattr(canvas, attr) for attr in ['original_image_width', 'original_image_height', 'displayed_image_width', 'displayed_image_height', 'image_x0', 'image_y0', 'scale']):
+            print("Image dimensions not available.")
+            return
+
+        # Get the position of the click relative to the canvas
+        click_x_canvas, click_y_canvas = event.x, event.y
+
+        # Get the canvas size
+        canvas_width = canvas.winfo_width()
+        canvas_height = canvas.winfo_height()
+
+        # Retrieve the stored image position and scaling
+        image_x0 = canvas.image_x0
+        image_y0 = canvas.image_y0
+        scale = canvas.scale
+
+        # Check if the click is within the displayed image
+        if not (image_x0 <= click_x_canvas <= image_x0 + canvas.displayed_image_width and
+                image_y0 <= click_y_canvas <= image_y0 + canvas.displayed_image_height):
+            print("Click is outside the image.")
+            return
+
+        # Map the click position to the image coordinates
+        click_x_image = (click_x_canvas - image_x0) / scale
+        click_y_image = (click_y_canvas - image_y0) / scale
+
+        # Calculate the center of the image in image coordinates
+        image_center_x = canvas.original_image_width / 2
+        image_center_y = canvas.original_image_height / 2
+
+        # Calculate the distance and direction from the center of the image
+        move_x = click_x_image - image_center_x
+        move_y = click_y_image - image_center_y
+
+        # Convert the movement from pixels to nanometers (or appropriate units)
+        stage_move_x = move_x * config.NM_PER_PX
+        stage_move_y = move_y * config.NM_PER_PX
+
+        # Move the stage accordingly
+        move_relative(self.stage_controller, [stage_move_x, stage_move_y], wait=False)
+
+
 
     def init_progress_bar(self):
         """Initialize the progress bar and status label in the main tab."""
@@ -1386,10 +1461,10 @@ class GUI:
 
         # Navigation buttons positions
         navigation_buttons = [
-            ("Up", (0, 1), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST / 2)], stages=(5,), wait=False)),
-            ("Left", (1, 0), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST / 2)], stages=(4,), wait=False)),
-            ("Right", (1, 2), lambda: move_relative(self.stage_controller, pos=[int(config.DIST / 2)], stages=(4,), wait=False)),
-            ("Down", (2, 1), lambda: move_relative(self.stage_controller, pos=[int(config.DIST / 2)], stages=(5,), wait=False)),
+            ("Up", (0, 1), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST)], stages=(5,), wait=False)),
+            ("Left", (1, 0), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST)], stages=(4,), wait=False)),
+            ("Right", (1, 2), lambda: move_relative(self.stage_controller, pos=[int(config.DIST)], stages=(4,), wait=False)),
+            ("Down", (2, 1), lambda: move_relative(self.stage_controller, pos=[int(config.DIST)], stages=(5,), wait=False)),
         ]
 
         # Create navigation buttons with equal size
@@ -1836,19 +1911,31 @@ class GUI:
         self.image_acquisition_thread._rotation_angle = angle
 
         print(f"Camera rotation set to: {angle:.2f} degrees")
-        
+
     def on_closing(self):
         """Handle the cleanup on closing the application."""
+        logging.info("GUI is closing. Initiating cleanup.")
         try:
             if self.image_acquisition_thread.is_alive():
+                logging.info("Stopping image acquisition thread...")
                 self.image_acquisition_thread.stop()
                 self.image_acquisition_thread.join()
-            if self.camera.is_armed:
-                self.camera.disarm()
-            self.camera.dispose()
+                logging.info("Image acquisition thread stopped.")
+            try:
+                if not getattr(self.camera, 'disposed', False):
+                    logging.info("Disarming and disposing the camera...")
+                    self.camera.disarm()
+                    self.camera.dispose()
+                    self.camera.disposed = True  # Mark the camera as disposed
+            except (TLCameraError, AttributeError) as e:
+                logging.exception("Error while disarming or disposing the camera in on_closing:")
         except Exception as e:
-            print(f"Error during shutdown: {e}")
+            logging.exception("Error during shutdown:")
         self.root.destroy()
+        logging.info("GUI closed successfully.")
+
+
+
 
 
 
@@ -1883,56 +1970,82 @@ def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_
     threading.Thread(target=check_stitching_complete, daemon=True).start()
 
 def cleanup(signum=None, frame=None):
-    print("Signal received, cleaning up...")
+    logging.info("Signal received, cleaning up...")
     try:
         if 'GUI_main' in globals() and GUI_main is not None:
             GUI_main.on_closing()
         elif 'camera' in globals() and camera is not None:
-            if camera.is_armed:
-                camera.disarm()
-            camera.dispose()
+            if not getattr(camera, 'disposed', False):
+                try:
+                    logging.info("Disarming and disposing the camera...")
+                    camera.disarm()
+                    camera.dispose()
+                    camera.disposed = True  # Mark the camera as disposed
+                except (TLCameraError, AttributeError) as e:
+                    logging.exception("Error while disarming or disposing the camera during cleanup:")
+            else:
+                logging.info("Camera already disposed.")
     except Exception as e:
-        print(f"Exception during cleanup: {e}")
+        logging.exception(f"Exception during cleanup: {e}")
     sys.exit(0)
+
+
 
 if __name__ == "__main__":
     # Set up signal handlers for unexpected termination
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
 
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,  # Set to DEBUG to capture all types of logs
+        format='%(asctime)s [%(levelname)s] %(threadName)s: %(message)s',
+        handlers=[
+            logging.StreamHandler(),  # Log to console
+            logging.FileHandler('app_debug.log', mode='w')  # Log to a file
+        ]
+    )
+
     try:
+        logging.info("Initializing TLCameraSDK...")
         with TLCameraSDK() as sdk:
+            logging.info("Discovering available cameras...")
             camera_list = sdk.discover_available_cameras()
+            logging.debug(f"Available cameras: {camera_list}")
             if len(camera_list) == 0:
-                print("No cameras found.")
+                logging.error("No cameras found.")
                 sys.exit(1)
 
             # Open the camera without using 'with' so it stays open
             camera = sdk.open_camera(camera_list[-1])
-            print(f"Camera {camera_list[0]} initialized.")
+            logging.info(f"Camera {camera_list[0]} initialized.")
 
             # Ensure the camera is properly disarmed before setting parameters
             if camera.is_armed:
-                print("Camera was already armed. Disarming first.")
+                logging.warning("Camera was already armed. Disarming first.")
                 camera.disarm()
 
             # Set camera parameters before arming
-            print("Setting camera parameters...")
-            camera.frames_per_trigger_zero_for_unlimited = 0
+            logging.info("Setting camera parameters...")
+            camera.frames_per_trigger_zero_for_unlimited = 1  # Capture one frame per software trigger
             camera.gain = config.CAMERA_PROPERTIES["gain"]
             camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
+            logging.debug(f"Camera gain set to {camera.gain}")
+            logging.debug(f"Camera exposure time set to {camera.exposure_time_us} us")
 
             # Arm the camera
             try:
+                logging.info("Arming the camera...")
                 camera.arm(2)
+                logging.debug(f"Camera is_armed: {camera.is_armed}")
             except Exception as e:
-                print(f"Error arming the camera: {e}")
+                logging.exception("Error arming the camera:")
                 camera.disarm()
                 camera.dispose()
                 sys.exit(1)
 
             if not camera.is_armed:
-                print("Camera failed to arm. Please disconnect and reconnect the camera.")
+                logging.error("Camera failed to arm. Please disconnect and reconnect the camera.")
                 camera.dispose()
                 sys.exit(1)
 
@@ -1950,30 +2063,59 @@ if __name__ == "__main__":
                 config.DIST = int(
                     min(config.CAMERA_DIMS) * config.NM_PER_PX * (1 - config.IMAGE_OVERLAP)
                 )
+                logging.debug(f"Config updated: {config.CAMERA_PROPERTIES}")
 
-                camera.issue_software_trigger()
-
-                print("App initializing...")
+                logging.info("App initializing...")
                 root = tk.Tk()
-                GUI_main = GUI(root, camera)
-                root.after(1000, GUI_main.auto_camera_settings)
+                GUI_main = None  # Initialize GUI_main before try-except
 
-                print("App starting")
-                root.mainloop()
+                try:
+                    GUI_main = GUI(root, camera)
+                    root.after(1000, GUI_main.auto_camera_settings)
+                    logging.info("App starting")
+                    root.mainloop()
+                except Exception as e:
+                    logging.exception("An exception occurred during GUI initialization or main loop:")
+                    # Ensure proper cleanup
+                    if GUI_main is not None:
+                        GUI_main.on_closing()
+                    else:
+                        # Attempt to disarm and dispose the camera
+                        try:
+                            if camera.is_armed:
+                                logging.info("Disarming the camera...")
+                                camera.disarm()
+                        except (TLCameraError, AttributeError):
+                            logging.exception("Error while disarming the camera during exception handling:")
+                        try:
+                            logging.info("Disposing the camera...")
+                            camera.dispose()
+                        except (TLCameraError, AttributeError):
+                            logging.exception("Error while disposing the camera during exception handling:")
+                    sys.exit(1)
 
-                print("Waiting for image acquisition thread to finish...")
-                GUI_main.image_acquisition_thread.stop()
-                GUI_main.image_acquisition_thread.join()
+                logging.info("Waiting for image acquisition thread to finish...")
+                if GUI_main.image_acquisition_thread.is_alive():
+                    GUI_main.image_acquisition_thread.stop()
+                    GUI_main.image_acquisition_thread.join()
 
-                print("Closing resources...")
+                logging.info("Closing resources...")
             except Exception as e:
-                print(f"An exception occurred: {e}")
+                logging.exception("An exception occurred during application execution:")
             finally:
                 # Ensure the camera is disarmed and disposed
-                if camera.is_armed:
-                    camera.disarm()
-                camera.dispose()
+                if not getattr(camera, 'disposed', False):
+                    try:
+                        logging.info("Disarming and disposing the camera...")
+                        camera.disarm()
+                        camera.dispose()
+                        camera.disposed = True  # Mark the camera as disposed
+                    except (TLCameraError, AttributeError) as e:
+                        logging.exception("Error while disarming or disposing the camera during final cleanup:")
+                else:
+                    logging.info("Camera already disposed.")
+                logging.info("App terminated. Goodbye!")
+
+
     except Exception as e:
-        print(f"An error occurred during camera initialization: {e}")
-    finally:
-        print("App terminated. Goodbye!")
+        logging.exception("An error occurred during camera initialization:")
