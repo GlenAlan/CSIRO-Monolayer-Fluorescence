@@ -12,9 +12,11 @@ from matplotlib.backends.backend_tkagg import (
     FigureCanvasTkAgg, NavigationToolbar2Tk)
 import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor
+from scipy.fftpack import fft2, fftshift
 
 from scipy.optimize import curve_fit
 from scipy.signal.windows import hamming
+from datetime import timedelta
 
 import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser
@@ -57,7 +59,6 @@ logging.basicConfig(
         logging.FileHandler('app_debug.log', mode='w')  # Log to a file
     ]
 )
-
 
 
 class LiveViewCanvas(tk.Canvas):
@@ -297,10 +298,10 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
             future = executor.submit(process_image, item, canvas, start, lock)
             futures.append(future)
 
-            scaled_canvas = scale_down_canvas(canvas, 16)
+            # scaled_canvas = scale_down_canvas(canvas, 16)
 
-            stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
-            stitched_view_canvas.update_image_display(stitched_image)
+            # stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
+            # stitched_view_canvas.update_image_display(stitched_image)
 
         # Wait for all futures to complete
         for future in futures:
@@ -463,10 +464,9 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
             x (int): The x-coordinate in nanometers.
             y (int): The y-coordinate in nanometers.
         """
-        time.sleep(1.5*config.CAMERA_PROPERTIES["exposure"]/1e6)
+        time.sleep(0.5*config.CAMERA_PROPERTIES["exposure"]/1e6)
 
 
-        ################################################################################################################################### Change this back
         frame = image_queue.get(timeout=1000)
 
         if config.AUTOFOCUS:
@@ -477,15 +477,14 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
                 frame = image_queue.get(timeout=1000)
                 focuses.append(get_focus(frame))
 
+        # r = random.randint(-4, 4)
+        # if r > 0:
+        #     frame = Image.open(f"Images/test_image{r}.jpg")
 
-        r = random.randint(-4, 4)
-        if r > 0:
-            frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
         config.current_image += 1
         gui.root.after(0, lambda: gui.update_progress(int(90*config.current_image/num_images), f"Capturing Image {config.current_image} of {num_images}"))
 
-        ###################################################################################################################################
 
     def scan_line(x, y, direction, focuses):
         """
@@ -548,7 +547,7 @@ def auto_focus(mcm301obj, image_queue, params=None):
     best_focus = 0
     for z_i in z_range:
         move(mcm301obj, [int(z_i)], (6,))
-        time.sleep(config.CAMERA_PROPERTIES['exposure']/1e6)
+        time.sleep(0.5*config.CAMERA_PROPERTIES['exposure']/1e6)
         focus = get_focus(image_queue.get(1000))
         if focus > best_focus:
             best_focus = focus
@@ -566,6 +565,7 @@ def initial_auto_focus(gui, mcm301obj, image_queue, n = 5):
 def get_focus(image):
     """
     Calculates the focus measure of an image using the Power Spectrum Slope method.
+    Optimized for performance.
 
     Parameters:
         image (PIL.Image): Input PIL image.
@@ -573,26 +573,25 @@ def get_focus(image):
     Returns:
         float: Focus measure value (slope of the power spectrum).
     """
+    starttime = time.perf_counter()
+
     # Convert to grayscale and convert to numpy array
     img_gray = np.array(image.convert('L'), dtype=np.float32)
 
     # Apply a Hamming window to reduce edge effects
-    window = hamming(img_gray.shape[0])[:, None] * hamming(img_gray.shape[1])[None, :]
-    img_windowed = img_gray * window
+    hamming_window = hamming(img_gray.shape[0])[:, None] * hamming(img_gray.shape[1])[None, :]
+    img_windowed = img_gray * hamming_window
 
     # Compute the 2D FFT of the image
-    f = np.fft.fft2(img_windowed)
-    fshift = np.fft.fftshift(f)
+    fshift = fftshift(fft2(img_windowed))
 
     # Compute the power spectrum
     power_spectrum = np.abs(fshift) ** 2
 
-    # Create a grid of frequencies
-    num_rows, num_cols = img_gray.shape
-    cy, cx = num_rows // 2, num_cols // 2
-    y, x = np.indices((num_rows, num_cols))
-    r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-    r = r.astype(int)  # Changed from np.int to int
+    # Create a grid of frequencies and compute the radial profile
+    cy, cx = np.array(img_gray.shape) // 2
+    y, x = np.indices(img_gray.shape)
+    r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2).astype(int)
 
     # Radially average the power spectrum
     tbin = np.bincount(r.ravel(), power_spectrum.ravel())
@@ -613,20 +612,15 @@ def get_focus(image):
 
     # Fit a line to the log-log power spectrum
     try:
-        slope, intercept = curve_fit(linear_func, log_freq, log_power)[0]
+        slope, _ = curve_fit(linear_func, log_freq, log_power)[0]
     except RuntimeError:
-        # If the fit fails, return a large negative slope indicating poor focus
-        slope = -10.0
+        slope = -10.0  # Poor focus
 
     # The slope of the line is the focus measure
-    focus_value = -slope  # Invert the slope to make higher values indicate better focus
-
-    print(f"Focus Value: {focus_value}")
+    focus_value = -slope  # Higher values indicate better focus
+    print(f"Focus Value: {focus_value} in {time.perf_counter() - starttime:.4f} seconds")
 
     return focus_value
-
-
-
 
 
 
@@ -1335,9 +1329,19 @@ class GUI:
 
         self.create_position_entries()
         self.create_main_frame_buttons()
-        self.create_calibration_controls()
+        self.create_controls()
         self.create_lens_selector()
         self.create_auto_focus()
+
+        advanced_settings_button = tk.Button(
+            self.calibration_frame_controls,
+            text="Advanced Settings",
+            command=self.open_advanced_settings,
+            bg=config.BUTTON_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.BUTTON_FONT
+        )
+        advanced_settings_button.grid(row=16, column=0, padx=10, pady=10, sticky='w')
 
         self.cat_button = tk.Button(
             self.main_frame_controls,
@@ -1415,7 +1419,7 @@ class GUI:
         self.main_frame_controls_position = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR, padx=25)
         self.main_frame_controls_position.grid(row=0, sticky='w', pady=30)
 
-    def create_calibration_controls(self):
+    def create_controls(self):
         """Create the calibration controls including navigation buttons with equal size."""
         # Insert a spacer frame to add a gap above the move controls
         spacer_frame = tk.Frame(self.main_frame_controls, height=20, bg=config.THEME_COLOR)
@@ -1548,6 +1552,111 @@ class GUI:
             font=config.BUTTON_FONT
         )
         self.auto_expose_button.grid(row=0, column=2, rowspan=2, padx=10, pady=5, sticky='ns')
+
+    def open_advanced_settings(self):
+        """Open a window to adjust advanced configuration settings."""
+        # Create a new top-level window
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("Advanced Settings")
+        settings_window.configure(bg=config.THEME_COLOR)
+        settings_window.grab_set()  # Make the window modal
+
+        # Define the list of variables to display and edit
+        # Each tuple contains (Display Name, Config Attribute Name)
+        settings_vars = [
+            ("Maximum distance to check for a better focus (nm)", "FOCUS_RANGE"),
+            ("Acceptable proportion of being out of focus", "FOCUS_BUFFER"),
+            ("Number of frames to avg when assessing for a change in focus", "FOCUS_FRAME_AVG"),
+            ("Amount to downscale the results image", "RESULTS_IMAGE_DOWNSCALE"),
+            # Add more variables as needed
+        ]
+
+        # Dictionary to hold entry widgets for later access
+        self.advanced_settings_entries = {}
+
+        # Create labels and entry boxes for each variable
+        for i, (label_text, var_name) in enumerate(settings_vars):
+            # Label for the variable name
+            label = tk.Label(
+                settings_window,
+                text=label_text + ":",
+                bg=config.THEME_COLOR,
+                fg=config.TEXT_COLOR,
+                font=config.LABEL_FONT
+            )
+            label.grid(row=i, column=0, padx=10, pady=5, sticky='e')
+
+            # Entry box for the variable value
+            entry = tk.Entry(
+                settings_window,
+                font=config.LABEL_FONT,
+                width=20
+            )
+            entry.grid(row=i, column=1, padx=10, pady=5, sticky='w')
+
+            # Insert the current value from config
+            current_value = getattr(config, var_name, "")
+            entry.insert(0, str(current_value))
+
+            # Store the entry widget for later retrieval
+            self.advanced_settings_entries[var_name] = entry
+
+        # Save and Cancel buttons
+        button_frame = tk.Frame(settings_window, bg=config.THEME_COLOR)
+        button_frame.grid(row=len(settings_vars), column=0, columnspan=2, pady=10)
+
+        save_button = tk.Button(
+            button_frame,
+            text="Save",
+            command=lambda: self.save_advanced_settings(settings_window, settings_vars),
+            bg=config.BUTTON_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.BUTTON_FONT
+        )
+        save_button.pack(side=tk.LEFT, padx=5)
+
+        cancel_button = tk.Button(
+            button_frame,
+            text="Cancel",
+            command=settings_window.destroy,
+            bg=config.BUTTON_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.BUTTON_FONT
+        )
+        cancel_button.pack(side=tk.LEFT, padx=5)
+
+    def save_advanced_settings(self, window, settings_vars):
+        """Save the updated settings from the advanced settings window."""
+        for label_text, var_name in settings_vars:
+            entry = self.advanced_settings_entries.get(var_name)
+            if entry:
+                new_value = entry.get().strip()
+                try:
+                    # Determine the type based on the current config value
+                    current_value = getattr(config, var_name, None)
+                    if isinstance(current_value, int):
+                        converted_value = int(new_value)
+                    elif isinstance(current_value, float):
+                        converted_value = float(new_value)
+                    else:
+                        converted_value = new_value  # For strings or other types
+
+                    # Optionally, add range checks or other validations here
+                    # Example:
+                    # if var_name == "FOCUS_RANGE" and not (0 < converted_value < 1000):
+                    #     raise ValueError("Focus Range must be between 0 and 1000")
+
+                    # Update the config with the new value
+                    setattr(config, var_name, converted_value)
+                except ValueError:
+                    messagebox.showerror("Input Error", f"Invalid value for {label_text}. Please enter a valid number.")
+                    return  # Exit the method without closing the window
+
+        # Optionally, update any dependent UI elements or settings here
+
+        # Close the settings window after saving
+        window.destroy()
+        messagebox.showinfo("Settings Saved", "Advanced settings have been updated successfully.")
 
     
     def create_lens_selector(self):
@@ -1944,9 +2053,6 @@ class GUI:
             logging.exception("Error during shutdown:")
         self.root.destroy()
         logging.info("GUI closed successfully.")
-
-
-
 
 
 

@@ -250,3 +250,15 @@ TODO:
 - [X] Add automatic focus adjustment (every n frames)
 - [ ] Give the window a logo and package it into a .exe if possible
 - [ ] Select Camera
+
+
+Things to fix:  
+Still Jumping to random other parts  
+Still occasionally doesnt load camera  
+The corners need to be labeld so that it starts on a focusable part  
+FASTER!  
+
+
+Field Test:  
+14.15 - Clean room  
+14.45 - Leave cleanroom with 6 PDMS (exfolation WSe2)

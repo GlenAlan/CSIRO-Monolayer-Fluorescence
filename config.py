@@ -39,7 +39,6 @@ import torch
 ACCEL_DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-
 start_pos = [0, 0]
 end_pos = [0, 0] 
 corner1 = [0, 0]
