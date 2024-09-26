@@ -26,9 +26,12 @@ from skimage.measure import shannon_entropy
 import torch
 
 from custom_definitions import *
+from zoom_canvas import *
 import config
 
 from MCM301_COMMAND_LIB import *
+
+import logging
 
 # Thorlabs TSI SDK imports
 from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame, TLCameraError
@@ -45,8 +48,6 @@ except ImportError:
 
 
 
-import logging
-
 # Configure logging
 logging.basicConfig(
     level=logging.DEBUG,  # Set to DEBUG to capture all types of logs
@@ -57,11 +58,6 @@ logging.basicConfig(
     ]
 )
 
-
-
-def image_to_stage(center_coords, start):
-    center_coords_raw = (int((center_coords[0] - config.CAMERA_DIMS[0])* config.NM_PER_PX + start[0]), int((center_coords[1] - config.CAMERA_DIMS[1])* config.NM_PER_PX + start[1]))
-    return center_coords_raw
 
 
 class LiveViewCanvas(tk.Canvas):
@@ -94,6 +90,11 @@ class LiveViewCanvas(tk.Canvas):
         self.after(config.UPDATE_DELAY, self._display_image)  # Continue updating the image
 
     def update_image_display(self, image):
+        # Validate image dimensions
+        if image.width <= 0 or image.height <= 0:
+            logging.warning(f"Received image with invalid dimensions: {image.width}x{image.height}. Skipping resize.")
+            return
+
         # Store the original image size
         self.original_image_width = image.width
         self.original_image_height = image.height
@@ -105,6 +106,7 @@ class LiveViewCanvas(tk.Canvas):
 
         # Avoid division by zero
         if canvas_width == 0 or canvas_height == 0:
+            logging.warning("Canvas width or height is zero. Skipping image display.")
             return
 
         # Compute the scaling factors to fit the image to the canvas
@@ -112,9 +114,14 @@ class LiveViewCanvas(tk.Canvas):
         scale_y = canvas_height / self.original_image_height
         self.scale = min(scale_x, scale_y)
 
+        # Ensure scaling factors are positive
+        if self.scale <= 0:
+            logging.warning(f"Invalid scaling factors: scale_x={scale_x}, scale_y={scale_y}. Skipping resize.")
+            return
+
         # Resize the image accordingly
-        new_width = int(self.original_image_width * self.scale)
-        new_height = int(self.original_image_height * self.scale)
+        new_width = max(int(self.original_image_width * self.scale), 1)  # Ensure width is at least 1
+        new_height = max(int(self.original_image_height * self.scale), 1)  # Ensure height is at least 1
         self.displayed_image = image.resize((new_width, new_height), Image.LANCZOS)
 
         # Store the displayed image size
@@ -130,6 +137,7 @@ class LiveViewCanvas(tk.Canvas):
         self.image_x0 = (canvas_width - new_width) // 2
         self.image_y0 = (canvas_height - new_height) // 2
         self.create_image(self.image_x0, self.image_y0, anchor='nw', image=self.photo_image)
+
 
     def on_resize(self, event):
         # Redraw the image when the canvas is resized
@@ -324,7 +332,7 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
 
     post_processing(gui, canvas, start)
 
-def post_processing(gui, canvas, start, contrast=2, threshold=100):
+def post_processing(gui, canvas, start, contrast=2, threshold=50):
     t1 = time.time()
     gui.root.after(0, lambda: gui.update_progress(95, "Image processing..."))
     print("Post processing...")
@@ -409,7 +417,7 @@ def post_processing(gui, canvas, start, contrast=2, threshold=100):
     monolayers.sort(key=operator.attrgetter('area'))
     monolayers.reverse()
 
-    gui.root.after(0, lambda: gui.display_results_tab(Image.fromarray(cv2.cvtColor(scale_down_canvas(contour_image, 10), cv2.COLOR_BGRA2RGBA)), monolayers))
+    gui.root.after(0, lambda: gui.display_results_tab(Image.fromarray(cv2.cvtColor(scale_down_canvas(contour_image, config.RESULTS_IMAGE_DOWNSCALE), cv2.COLOR_BGRA2RGBA)), monolayers))
 
 
     for i, layer in enumerate(monolayers):
@@ -470,7 +478,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
                 focuses.append(get_focus(frame))
 
 
-        r = random.randint(-20, 4)
+        r = random.randint(-4, 4)
         if r > 0:
             frame = Image.open(f"Images/test_image{r}.jpg")
         frame_queue.put((frame, (x, y)))
@@ -506,7 +514,10 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     x, y = start
     direction = 1
 
-    auto_focus(mcm301obj, image_queue)
+    gui.root.after(0, lambda: gui.auto_focus_button.config(state='disabled'))
+    if config.AUTOFOCUS:
+        gui.root.after(0, lambda: gui.update_progress(1, "Focusing..."))
+        auto_focus(mcm301obj, image_queue, [config.FOCUS_RANGE*2, config.FOCUS_STEPS*2])
     
     while y < end[1]:
         x = scan_line(x, y, direction, focuses)
@@ -522,6 +533,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     print("\nImage capture complete!")
     print("Waiting for image processing to complete...")
     gui.root.after(0, lambda: gui.update_progress(92, "Image stitching..."))
+    gui.root.after(0, lambda: gui.auto_focus_button.config(state='normal'))
     frame_queue.put(None)
 
 
@@ -543,11 +555,13 @@ def auto_focus(mcm301obj, image_queue, params=None):
             best_z = int(z_i)
     move(mcm301obj, [best_z], (6,))
 
-def initial_auto_focus(mcm301obj, image_queue, n = 5):
-    d = 2e7/config.CAMERA_PROPERTIES['lens']
+def initial_auto_focus(gui, mcm301obj, image_queue, n = 5):
+    gui.root.after(0, lambda: gui.auto_focus_button.config(state='disabled'))
+    d = 1e7/config.CAMERA_PROPERTIES['lens']
     while d > 10e4/config.CAMERA_PROPERTIES['lens']:
         auto_focus(mcm301obj, image_queue, params=[int(d), n])
         d = d/(n-1)
+    gui.root.after(0, lambda: gui.auto_focus_button.config(state='normal'))
 
 def get_focus(image):
     """
@@ -1123,44 +1137,15 @@ class GUI:
         # Update the image in the left canvas
         MIN_WIDTH = 400  # Set your minimum width here
         MIN_HEIGHT = 400  # Set your minimum height here
-
-        def update_image_on_resize(event=None):
-            canvas_width = max(self.results_frame_image.winfo_width(), MIN_WIDTH)
-            canvas_height = max(self.results_frame_image.winfo_height(), MIN_HEIGHT)
-
-            if canvas_width <= 0 or canvas_height <= 0:
-                return
-
-            if image.width == 0 or image.height == 0:
-                print("Invalid image dimensions.")
-                return
-
-            aspect_ratio = image.width / image.height
-
-            if canvas_width / aspect_ratio < canvas_height:
-                new_width = canvas_width
-                new_height = int(new_width / aspect_ratio)
-            else:
-                new_height = canvas_height
-                new_width = int(new_height * aspect_ratio)
-
-            new_width = max(1, int(new_width))
-            new_height = max(1, int(new_height))
-
-            resized_image = image.resize((new_width, new_height), Image.LANCZOS)
-            self._resized_image = ImageTk.PhotoImage(resized_image)
-            self.results_frame_image.delete("all")
-            self.results_frame_image.create_image(0, 0, anchor='nw', image=self._resized_image)
-
+        
         # Set minimum size and disable shrinking below this size
         self.results_frame_image.config(width=MIN_WIDTH, height=MIN_HEIGHT)
         self.results_frame_image.grid_propagate(False)  # Prevent the canvas from shrinking below its minimum size
 
-        # Bind event to dynamically update image size when the canvas is resized
-        self.results_frame_image.bind("<Configure>", update_image_on_resize)
-
-        # Delay the initial call to allow GUI to initialize
-        self.root.after(100, update_image_on_resize)
+        self.results_frame_image.rowconfigure(0, weight=1) 
+        self.results_frame_image.columnconfigure(0, weight=1)
+        canvas = CanvasImage(self.results_frame_image, image, self)
+        canvas.grid(row=0, column=0)
 
         if monolayers is not None:
             # Clear existing widgets
@@ -1594,21 +1579,47 @@ class GUI:
     def create_auto_focus(self):
 
         auto_focus_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
-        auto_focus_frame.grid(row=1, column=3, columnspan=1, padx=10, pady=10, sticky='nsew')
+        auto_focus_frame.grid(row=1, column=3, columnspan=2, padx=10, pady=10, sticky='nsew')
 
         self.auto_focus_button = tk.Button(
             auto_focus_frame,
             text="Auto Focus",
             command=lambda: threading.Thread(
                     target=initial_auto_focus,
-                    args=(self.stage_controller, self.image_acquisition_thread._image_queue),
+                    args=(self, self.stage_controller, self.image_acquisition_thread._image_queue),
                     daemon=True
                 ).start(),
             bg=config.BUTTON_COLOR,
             fg=config.TEXT_COLOR,
             font=config.BUTTON_FONT
         )
-        self.auto_focus_button.grid(row=0, column=0, padx=5, pady=5)
+        self.auto_focus_button.grid(row=0, column=1, padx=5, pady=5)
+
+        self.auto_focus_on = tk.BooleanVar(value=config.AUTOFOCUS) 
+
+        # Checkbutton for enabling/disabling auto focus
+        self.auto_focus_checkbox = tk.Checkbutton(
+            auto_focus_frame,
+            text="Auto Focus Enabled",
+            variable=self.auto_focus_on,
+            command=self.toggle_auto_focus,
+            onvalue=True, 
+            offvalue=False, 
+            height=2, 
+            width=20,
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR, 
+            font=config.LABEL_FONT,
+            activebackground=config.THEME_COLOR,
+            selectcolor=config.THEME_COLOR,
+        )
+        self.auto_focus_checkbox.grid(row=0, column=0, padx=5, pady=5)
+
+        config.AUTOFOCUS = self.auto_focus_on.get()
+
+    def toggle_auto_focus(self):
+        config.AUTOFOCUS = self.auto_focus_on.get()
+        print(f"Auto focus set to: {config.AUTOFOCUS}")
 
 
     def update_lens(self, event=None):
@@ -1734,7 +1745,7 @@ class GUI:
         color_frame.grid(row=0, column=3)
         
         # Set the default color
-        self.color_code = "#FF4500"  # Default color (reddish-orange)
+        self.color_code = rgb2hex(config.MONOLAYER_COLOR)
 
         # Add a text label to the left
         self.text_label = tk.Label(

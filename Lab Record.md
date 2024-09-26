@@ -220,10 +220,10 @@ The main goal for today was to implement auto focus routines. To achieve this I 
 Changes were also made to the auto expose routine, increasing the accuracy and speeding up the process. The changes included limiting the proportional increase/decrease in gain/exposure to 20% per step as to avoid overshooting and adding extra criteria for when the exposure is way too high or low. It also now tries to converge to the closest allowed value in the image intensity (exposure) range.
 
 TODO:
-- [ ] Disable autofocus button when focusing
+- [X] Disable autofocus button when focusing
 - [ ] Allow adjustment of other config parameters in extra window
 - [ ] Refine quality parameters
-- [ ] Begin tidying
+- [X] Begin tidying
 
 ### Remainder of the placement
 
@@ -235,10 +235,12 @@ TODO:
 - [X] Rerun Results Processing Button
 - [X] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
 - [X] Autofocus adapt to zoom
-- [ ] Disable autofocus button when focusing
+- [X] Disable autofocus button when focusing
 - [ ] Allow adjustment of other config parameters in extra window
+- [ ] Add a threshold slider for monolayer detection
 - [ ] Allow zoom on the results image (and click to go to location)
 - [ ] Add more instructions to the GUI and redo layout as needed
+- [ ] Check all relavent buttons get disabled during potentially colliding processes
 - [ ] Refine quality parameters
 - [X] Add an intuitive click to move on the live view image
 - [ ] Tidy up our directory and to make it neater

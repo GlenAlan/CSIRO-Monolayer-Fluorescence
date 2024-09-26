@@ -34,9 +34,10 @@ try:
 except ImportError:
     configure_path = None
 
-# These bits indicate that the stage is no longer moving.
-
-
+def image_to_stage(center_coords, start, factor=1):
+    x, y = factor*center_coords[0], factor*center_coords[1] 
+    center_coords_raw = int((x - config.CAMERA_DIMS[0])* config.NM_PER_PX + start[0]), int((y - config.CAMERA_DIMS[1])* config.NM_PER_PX + start[1])
+    return center_coords_raw
 
 def format_size(size_in_bytes):
     """
@@ -150,7 +151,9 @@ def stage_setup(home=True):
 
     return mcm301obj
 
-
+def rgb2hex(color):
+    r, g, b = color
+    return '#{:02x}{:02x}{:02x}'.format(r, g, b)
 
 def move(mcm301obj, pos, stages=(4, 5), wait=True):
     """
