@@ -55,27 +55,7 @@ class CanvasImage:
         self.canvas.grid(row=0, column=0, sticky='nswe')
         self.canvas.update()  # wait till canvas is created
         """ Scale the image to fit within the canvas initially and center it. """
-        # canvas_width = self.canvas.winfo_width()
-        # canvas_height = self.canvas.winfo_height()
 
-        # ############################################ Inputted code, may not work
-        # # Load the image using PIL
-        # self.__image = Image.open(image_path)
-        # self.imwidth, self.imheight = self.__image.size  # Original image dimensions
-        # self.imscale = 1.0  # Initial scale factor
-        # if canvas_width > 1 and canvas_height > 1:
-        #     # Calculate the scale factor based on canvas size and image size
-        #     scale_factor = min(canvas_width / self.imwidth, canvas_height / self.imheight)
-
-        #     # Set the initial scaling factor to make the image fully visible
-        #     self.imscale = scale_factor
-
-        #     # Resize the image based on the scale factor
-        #     new_width = int(self.imwidth * self.imscale)
-        #     new_height = int(self.imheight * self.imscale)
-        #     self.tkimage = self.__image.crop((0,0,new_width, new_height))
-        #     self.image_resized = self.tkimage.resize((new_width, new_height), Image.LANCZOS)
-        # ############################################
 
         hbar.configure(command=self.__scroll_x)  # bind scrollbars to the canvas
         vbar.configure(command=self.__scroll_y)
@@ -269,6 +249,7 @@ class CanvasImage:
         y_original = max(0, min(self.imheight, y_original))
 
         print(f"Original image coordinates: ({int(x_original)}, {int(y_original)})")
+        
 
     def outside(self, x, y):
         """ Checks if the point (x,y) is outside the image area """

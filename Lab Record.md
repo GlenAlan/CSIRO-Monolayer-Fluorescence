@@ -223,7 +223,7 @@ TODO:
 - [X] Disable autofocus button when focusing
 - [ ] Allow adjustment of other config parameters in extra window
 - [ ] Refine quality parameters
-- [ ] Begin tidying
+- [X] Begin tidying
 
 ### Remainder of the placement
 
@@ -237,8 +237,10 @@ TODO:
 - [X] Autofocus adapt to zoom
 - [X] Disable autofocus button when focusing
 - [ ] Allow adjustment of other config parameters in extra window
+- [ ] Add a threshold slider for monolayer detection
 - [ ] Allow zoom on the results image (and click to go to location)
 - [ ] Add more instructions to the GUI and redo layout as needed
+- [ ] Check all relavent buttons get disabled during potentially colliding processes
 - [ ] Refine quality parameters
 - [X] Add an intuitive click to move on the live view image
 - [ ] Tidy up our directory and to make it neater
