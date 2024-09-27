@@ -255,6 +255,8 @@ We showed Matt the progress of our project, highlighting all the new features we
 - [X] Add automatic focus adjustment (every n frames)
 - [ ] Give the window a logo and package it into a .exe if possible
 - [ ] Select Camera
+- [ ] Make larger ML outline
+- [ ] Rescale stichable image
 
 
 Things to fix:  

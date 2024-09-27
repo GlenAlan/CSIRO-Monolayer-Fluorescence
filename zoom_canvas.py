@@ -35,7 +35,6 @@ class AutoScrollbar(ttk.Scrollbar):
     def place(self, **kw):
         raise tk.TclError('Cannot use place with the widget ' + self.__class__.__name__)
 
-
 class CanvasImage:
     """ Display and zoom image """
     def __init__(self, placeholder, im, gui):
@@ -65,7 +64,7 @@ class CanvasImage:
         self.__delta = 1.3  # zoom magnitude
         self.__filter = Image.LANCZOS  # could be: NEAREST, BILINEAR, BICUBIC and ANTIALIAS
         self.__previous_state = 0  # previous state of the keyboard
-        self.im = im  # path to the image, should be public for outer classes
+        self.im = im  # PIL Image object
 
         # Create ImageFrame in placeholder widget with custom style
         self.__imframe = ttk.Frame(placeholder, style='Custom.TFrame')
@@ -116,19 +115,35 @@ class CanvasImage:
         with warnings.catch_warnings():  # suppress DecompressionBombWarning for big image
             warnings.simplefilter('ignore')
             self.__image = self.im  # open image, but don't load it into RAM
+
         self.imwidth, self.imheight = self.__image.size  # public for outer classes
-        if self.imwidth * self.imheight > self.__huge_size * self.__huge_size and \
-           self.__image.tile[0][0] == 'raw':  # only raw images could be tiled
-            self.__huge = True  # image is huge
-            self.__offset = self.__image.tile[0][2]  # initial tile offset
-            self.__tile = [self.__image.tile[0][0],  # it has to be 'raw'
-                           [0, 0, self.imwidth, 0],  # tile extent (a rectangle)
-                           self.__offset,
-                           self.__image.tile[0][3]]  # list of arguments to the decoder
         self.__min_side = min(self.imwidth, self.imheight)  # get the smaller image side
+        logging.debug(f"Image size: {self.imwidth}x{self.imheight}")
+        logging.debug(f"Minimum side: {self.__min_side}")
+
+        # Check if the image is considered "huge"
+        if (self.imwidth * self.imheight > self.__huge_size * self.__huge_size and
+            hasattr(self.__image, 'tile') and
+            self.__image.tile and
+            self.__image.tile[0][0] == 'raw'):  # only raw images could be tiled
+            self.__huge = True  # image is huge
+            logging.debug("Image is huge and tiled as 'raw'.")
+            self.__offset = self.__image.tile[0][2]  # initial tile offset
+            self.__tile = [
+                self.__image.tile[0][0],  # it has to be 'raw'
+                [0, 0, self.imwidth, 0],  # tile extent (a rectangle)
+                self.__offset,
+                self.__image.tile[0][3]  # list of arguments to the decoder
+            ]
+        else:
+            self.__huge = False
+            logging.debug("Image is not huge or does not have 'raw' tiling.")
 
         # Create image pyramid
-        self.__pyramid = [self.smaller()] if self.__huge else [self.im]
+        if self.__huge:
+            self.__pyramid = [self.smaller()]
+        else:
+            self.__pyramid = [self.im]
         # Set ratio coefficient for image pyramid
         self.__ratio = max(self.imwidth, self.imheight) / self.__huge_size if self.__huge else 1.0
         self.__curr_img = 0  # current image from the pyramid
@@ -138,11 +153,12 @@ class CanvasImage:
         n = math.ceil(math.log(min(w, h) / m, self.__reduction)) + 1  # image pyramid length
         while w > m and h > m:  # top pyramid image is around 512 pixels in size
             j += 1
-            print('\rCreating image pyramid: {j} from {n}'.format(j=j, n=n), end='')
+            logging.debug(f"Creating image pyramid: {j} from {n}")
             w /= self.__reduction  # divide by reduction degree
             h /= self.__reduction  # divide by reduction degree
             self.__pyramid.append(self.__pyramid[-1].resize((int(w), int(h)), self.__filter))
-        print('\r' + (' ' * 40) + '\r', end='')  # hide printed string
+        logging.debug("Image pyramid creation complete.")
+
         # Put image into container rectangle and use it to set proper coordinates to the image
         self.container = self.canvas.create_rectangle((0, 0, self.imwidth, self.imheight), width=0)
         self.__show_image()  # show image on the canvas
@@ -169,18 +185,19 @@ class CanvasImage:
         i, j, n = 0, 0, math.ceil(self.imheight / self.__band_width)
         while i < self.imheight:
             j += 1
-            print('\rOpening image: {j} from {n}'.format(j=j, n=n), end='')
+            logging.debug(f"Opening image: {j} from {n}")
             band = min(self.__band_width, self.imheight - i)  # width of the tile band
-            self.__tile[1][3] = band  # set band width
-            self.__tile[2] = self.__offset + self.imwidth * i * 3  # tile offset (3 bytes per pixel)
-            self.__image.close()
-            self.__image = self.im  # reopen / reset image
-            self.__image.size = (self.imwidth, band)  # set size of the tile band
-            self.__image.tile = [self.__tile]  # set tile
-            cropped = self.__image.crop((0, 0, self.imwidth, band))  # crop tile band
-            image.paste(cropped.resize((w, int(band * k) + 1), self.__filter), (0, int(i * k)))
+            if self.__huge:
+                self.__tile[1][3] = band  # set band width
+                self.__tile[2] = self.__offset + self.imwidth * i * 3  # tile offset (3 bytes per pixel)
+                self.__image.close()
+                self.__image = self.im  # reopen / reset image
+                self.__image.size = (self.imwidth, band)  # set size of the tile band
+                self.__image.tile = [self.__tile]  # set tile
+                cropped = self.__image.crop((0, 0, self.imwidth, band))  # crop tile band
+                image.paste(cropped.resize((w, int(band * k) + 1), self.__filter), (0, int(i * k)))
             i += band
-        print('\r' + (' ' * 40) + '\r', end='')  # hide printed string
+        logging.debug("Image resizing complete.")
         return image
 
     def redraw_figures(self):
@@ -301,8 +318,9 @@ class CanvasImage:
         y_original = max(0, min(self.imheight, y_original))
 
         print(f"Original image coordinates: ({int(x_original)}, {int(y_original)})")
-        final_x, final_y = image_to_stage([x_original, y_original], config.start_pos, config.RESULTS_IMAGE_DOWNSCALE)
-        print(f"Final stage coordinates: ({int(final_x)}, {int(final_y)})")
+        movement_array = [x_original, y_original, self.imwidth-x_original, self.imheight-y_original]
+        final_x, final_y = image_to_stage([int(movement_array[(-config.VIEW_ROTATION)%4]), int(movement_array[(-config.VIEW_ROTATION+1)%4])], config.start_pos, config.RESULTS_IMAGE_DOWNSCALE)
+        print(f"Final stage coordinates: ({final_x}, {final_y})")
         move(self.gui.stage_controller, (final_x, final_y), wait=False)
 
     def outside(self, x, y):

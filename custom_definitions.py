@@ -36,8 +36,22 @@ except ImportError:
 
 def image_to_stage(center_coords, start, factor=1):
     x, y = factor*center_coords[0], factor*center_coords[1] 
-    center_coords_raw = int((x - config.CAMERA_DIMS[0])* config.NM_PER_PX + start[0]), int((y - config.CAMERA_DIMS[1])* config.NM_PER_PX + start[1])
+    center_coords_raw = int((x - config.CAMERA_DIMS[0]) * config.NM_PER_PX + start[0]), int((y - config.CAMERA_DIMS[1]) * config.NM_PER_PX + start[1])
     return center_coords_raw
+
+view_num_to_rotation = {
+                0: None,
+                1: Image.ROTATE_90,
+                2: Image.ROTATE_180,
+                3: Image.ROTATE_270
+            }
+
+view_num_to_rotation_numpy = {
+                0: None,
+                1: cv2.ROTATE_90_COUNTERCLOCKWISE,
+                2: cv2.ROTATE_180,
+                3: cv2.ROTATE_90_CLOCKWISE
+            }
 
 def format_size(size_in_bytes):
     """
@@ -176,6 +190,7 @@ def move(mcm301obj, pos, stages=(4, 5), wait=True):
 
         # Convert the positions from nanometers to encoder units
         mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
+        print(f"Stage {stage}: {pos[i]} nm -> {coord[0]} encoder units")
 
         # Move the stages to the required encoder position
         mcm301obj.move_absolute(stage, coord[0])
@@ -298,16 +313,57 @@ class LiveViewCanvas(tk.Canvas):
             pass
         self.after(10, self._get_image)
 
+from numba import njit, prange
+@njit(parallel=True)
+def bin_image_numba(image_array: np.ndarray, binx: int, biny: int) -> np.ndarray:
+    if binx < 1 or biny < 1:
+        raise ValueError("Binning factors binx and biny must be positive integers.")
+
+    height, width, channels = image_array.shape
+    new_height = height // biny
+    new_width = width // binx
+
+    binned_image = np.zeros((new_height, new_width, channels), dtype=np.float32)
+
+    for y in prange(new_height):
+        for x in range(new_width):
+            for c in range(channels):
+                sum_val = 0.0
+                for dy in range(biny):
+                    for dx in range(binx):
+                        sum_val += image_array[y * biny + dy, x * binx + dx, c]
+                binned_image[y, x, c] = sum_val
+
+    binned_image= np.clip(binned_image, 0, 255).astype('uint8')
+
+    return binned_image
+
+def bin_image_cv2(image_array: np.ndarray, binx: int, biny: int) -> np.ndarray:
+    if binx < 1 or biny < 1:
+        raise ValueError("Binning factors binx and biny must be positive integers.")
+    
+    height, width, channels = image_array.shape
+    new_width = width // binx
+    new_height = height // biny
+    
+    # Resize using INTER_AREA which is suitable for downsampling
+    binned_image = cv2.resize(image_array, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    
+    return binned_image
+
+def bin_image(image_array: np.ndarray, binx: int, biny: int) -> np.ndarray:
+    return bin_image_cv2(bin_image_numba(image_array, binx, biny), binx, biny)
+
 class ImageAcquisitionThread(threading.Thread):
     def __init__(self, camera, rotation_angle=0):
         super(ImageAcquisitionThread, self).__init__()
         self._camera = camera
         self._previous_timestamp = 0
-        self._rotation_angle = rotation_angle  # New parameter for rotation
+        self._rotation_angle = rotation_angle 
 
         logging.debug("Initializing ImageAcquisitionThread...")
 
-        # setup color processing if necessary
+        # Setup color processing if necessary
         if self._camera.camera_sensor_type != SENSOR_TYPE.BAYER:
             # Sensor type is not compatible with the color processing library
             self._is_color = False
@@ -340,74 +396,79 @@ class ImageAcquisitionThread(threading.Thread):
 
     def _get_color_image(self, frame):
         # type: (Frame) -> Image
-        # verify the image size
+        # Verify the image size
         width = frame.image_buffer.shape[1]
         height = frame.image_buffer.shape[0]
         if (width != self._image_width) or (height != self._image_height):
             self._image_width = width
             self._image_height = height
-            print("Image dimension change detected, image acquisition thread was updated")
+            logging.info("Image dimension change detected, image acquisition thread was updated")
 
-        # color the image. transform_to_24 will scale to 8 bits per channel
+        # Color the image. transform_to_24 will scale to 8 bits per channel
         color_image_data = self._mono_to_color_processor.transform_to_24(
             frame.image_buffer,
             self._image_width,
             self._image_height
         )
         color_image_data = color_image_data.reshape(self._image_height, self._image_width, 3)
-        
-        # Create a PIL Image object
-        pil_image = Image.fromarray(color_image_data, mode='RGB')
 
+        # Perform software binning
+        binx = biny = config.CAMERA_BINNING
+        # logging.debug(f"Applying software binning with binx={binx}, biny={biny}")
+        binned_image_data = bin_image(color_image_data, binx, biny)
+
+
+        # Convert to uint8
+        binned_image_data = binned_image_data.astype('uint8')
+
+        # Create a PIL Image object
+        pil_image = Image.fromarray(binned_image_data, mode='RGB')
 
         # Rotate the image by the specified angle
         if self._rotation_angle != 0:
             pil_image = pil_image.rotate(self._rotation_angle, expand=True)
-
 
         return pil_image
 
-
     def _get_image(self, frame):
         # type: (Frame) -> Image
-        # no coloring, just scale down image to 8 bpp and place into PIL Image object
+        # No coloring, just scale down image to 8 bpp and place into PIL Image object
         scaled_image = frame.image_buffer >> (self._bit_depth - 8)
         pil_image = Image.fromarray(scaled_image)
-
 
         # Rotate the image by the specified angle
         if self._rotation_angle != 0:
             pil_image = pil_image.rotate(self._rotation_angle, expand=True)
-
 
         return pil_image
 
     def run(self):
-            logging.info("Image acquisition thread started.")
-            while not self._stop_event.is_set():
-                try:
-                    self._camera.issue_software_trigger()
-                    frame = self._camera.get_pending_frame_or_null()
-                    if frame is not None:
-                        # logging.debug("Frame received.")
-                        if self._is_color:
-                            pil_image = self._get_color_image(frame)
-                        else:
-                            pil_image = self._get_image(frame)
-                        self._image_queue.put_nowait(pil_image)
+        logging.info("Image acquisition thread started.")
+        while not self._stop_event.is_set():
+            try:
+                self._camera.issue_software_trigger()
+                frame = self._camera.get_pending_frame_or_null()
+                if frame is not None:
+                    # logging.debug("Frame received.")
+                    if self._is_color:
+                        pil_image = self._get_color_image(frame)
                     else:
-                        # logging.debug("No frame received. Retrying...")
-                        time.sleep(0.01)
-                except TLCameraError as error:
-                    logging.exception("Camera error encountered in image acquisition thread:")
-                    break
-                except queue.Full:
-                    # logging.warning("Image queue is full. Dropping frame.")
-                    pass
-                except Exception as error:
-                    logging.exception("Encountered error in image acquisition thread:")
-                    break
-            logging.info("Image acquisition thread has stopped.")
-            if self._is_color:
-                self._mono_to_color_processor.dispose()
-                self._mono_to_color_sdk.dispose()
+                        pil_image = self._get_image(frame)
+                    try:
+                        self._image_queue.put_nowait(pil_image)
+                    except queue.Full:
+                        # logging.warning("Image queue is full. Dropping frame.")
+                        pass
+                else:
+                    # logging.debug("No frame received. Retrying...")
+                    time.sleep(0.01)
+            except TLCameraError as error:
+                logging.exception("Camera error encountered in image acquisition thread:")
+                break
+            except Exception as error:
+                logging.exception("Encountered error in image acquisition thread:")
+                break
+        logging.info("Image acquisition thread has stopped.")
+        if self._is_color:
+            self._mono_to_color_processor.dispose()
+            self._mono_to_color_sdk.dispose()

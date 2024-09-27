@@ -90,7 +90,12 @@ class LiveViewCanvas(tk.Canvas):
 
         self.after(config.UPDATE_DELAY, self._display_image)  # Continue updating the image
 
+
     def update_image_display(self, image):
+        rotation = view_num_to_rotation[config.VIEW_ROTATION % 4]
+        if rotation is not None:
+            image = image.transpose(rotation)
+
         # Validate image dimensions
         if image.width <= 0 or image.height <= 0:
             logging.warning(f"Received image with invalid dimensions: {image.width}x{image.height}. Skipping resize.")
@@ -298,10 +303,10 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
             future = executor.submit(process_image, item, canvas, start, lock)
             futures.append(future)
 
-            # scaled_canvas = scale_down_canvas(canvas, 16)
+            scaled_canvas = scale_down_canvas(canvas, 8)
 
-            # stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
-            # stitched_view_canvas.update_image_display(stitched_image)
+            stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
+            stitched_view_canvas.update_image_display(stitched_image)
 
         # Wait for all futures to complete
         for future in futures:
@@ -316,11 +321,11 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
     #cv2.imwrite("Images/final.png", canvas)
     #cv2.imwrite("Images/final_compressed.png", canvas, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
-    save_image(canvas, "Images/final_scan.png", 10)
+    save_image(canvas, "Images/final_scan.png", 2)
 
     print("Save complete")
 
-    scaled_canvas = scale_down_canvas(canvas, 16)
+    scaled_canvas = scale_down_canvas(canvas, 4)
 
     stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
     stitched_view_canvas.update_image_display(stitched_image)
@@ -331,18 +336,21 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
         threading.Thread(target=lambda: save_image(canvas, "Images/RAW.png"), daemon=True).start()
         
 
-    post_processing(gui, canvas, start)
+    post_processing(gui, canvas)
 
-def post_processing(gui, canvas, start, contrast=2, threshold=50):
+def post_processing(gui, canvas):
     t1 = time.time()
     gui.root.after(0, lambda: gui.update_progress(95, "Image processing..."))
     print("Post processing...")
 
-    downscale_factor = 4
     monolayers = []
 
+    contrast = config.POST_PROCESSING_CONTRAST
+    threshold = config.POST_PROCESSING_THRESHOLD
+    blur = config.POST_PROCESSING_BLUR
+
     # Create a downsampled version of the canvas for post-processing
-    post_image = scale_down_canvas(canvas, downscale_factor)
+    post_image = scale_down_canvas(canvas, config.POST_PROCESSING_DOWNSCALE)
 
     # post_image = cv2.blur(post_image, (5, 5)) # Optional pre grayscale blur (downscaling already blurs)
     # Our image is in BGRA format so to convert it to greyscale with a bias for red and a bias against green and blue, we use the following formula:
@@ -355,7 +363,7 @@ def post_processing(gui, canvas, start, contrast=2, threshold=50):
     # Convert to uint8
     post_image = post_image.astype(np.uint8)
     # Apply a light Gaussian blur to reduce pixel noise and prevent against accidental monolayer splitting
-    post_image = cv2.blur(post_image, (4, 4))
+    post_image = cv2.blur(post_image, (blur, blur))
     
     # Increase contrast
     post_image = cv2.convertScaleAbs(post_image, alpha=contrast, beta=0)
@@ -381,7 +389,9 @@ def post_processing(gui, canvas, start, contrast=2, threshold=50):
     scaled_contours, _ = cv2.findContours(post_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # Scale up the contours to match the original resolution
-    contours = [contour * downscale_factor for contour in scaled_contours]
+    contours = [contour * config.POST_PROCESSING_DOWNSCALE for contour in scaled_contours]
+
+    larger_contours = []
 
     for i, contour in enumerate(contours):
         # Save the bounding box of the monolayer
@@ -397,24 +407,45 @@ def post_processing(gui, canvas, start, contrast=2, threshold=50):
         image_section = canvas[y_start:y_end, x_start:x_end]
 
         # Create a Monolayer object and add it to the list
+        rotation = view_num_to_rotation_numpy[config.VIEW_ROTATION % 4]
+        if rotation is not None:
+            image_section = cv2.rotate(image_section, rotation)
         monolayers.append(Monolayer(contour, image_section, (x_start, y_start)))
 
         cx, cy = monolayers[-1].position
         
         # Mark center of the monolayer
         contour_image = cv2.circle(contour_image, (cx, cy), config.MONOLAYER_DOT_SIZE, color=(0, 0, 0, 255), thickness=-1)
-    
-    # Draw contours on the original resolution image
-    cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), config.MONOLAYER_OUTLINE_THICKNESS)
+
+        if config.MONOLAYER_OUTLINE_SCALE != 1:
+            larger_contour = []
+
+            for point in contour:
+                x, y = point[0]
+                # Compute vector from centroid to point
+                dx = x - cx
+                dy = y - cy
+                # Scale the vector
+                new_x = cx + dx * config.MONOLAYER_OUTLINE_SCALE
+                new_y = cy + dy * config.MONOLAYER_OUTLINE_SCALE
+                # Append the new point, rounded to integer pixel values
+                larger_contour.append([int(new_x), int(new_y)])
+            larger_contour = np.array(larger_contour, dtype=np.int32).reshape(-1, 1, 2)
+            larger_contours.append(larger_contour)
+            
+            # Draw contours on the original resolution image
+            cv2.drawContours(contour_image, larger_contours, -1, (255, 255, 0, 255), config.MONOLAYER_OUTLINE_THICKNESS)
+        else:
+            cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), config.MONOLAYER_OUTLINE_THICKNESS)
     
     # Display the final image with contours
     gui.root.after(0, lambda: gui.update_progress(97, "Saving final images..."))
     print("Saving image with monolayers...")
-    save_image(contour_image, "Images/highlighted_monolayers.png", 5)
+    save_image(contour_image, "Images/highlighted_monolayers.png", 1)
     print("Saved!")
 
     # Sort monolayers by area removing any which are too small
-    monolayers = [layer for layer in monolayers if layer.area_um >= downscale_factor]
+    monolayers = [layer for layer in monolayers if layer.area_um >= config.POST_PROCESSING_DOWNSCALE]
     monolayers.sort(key=operator.attrgetter('area'))
     monolayers.reverse()
 
@@ -470,16 +501,26 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
         frame = image_queue.get(timeout=1000)
 
         if config.AUTOFOCUS:
-            focuses.append(get_focus(frame))
-            if len(focuses) > config.FOCUS_FRAME_AVG*2 and np.average(focuses[0:-config.FOCUS_FRAME_AVG]) > np.average(focuses[-config.FOCUS_FRAME_AVG:-1])*config.FOCUS_BUFFER:
-                auto_focus(mcm301obj, image_queue)
-                focuses.clear()
-                frame = image_queue.get(timeout=1000)
+            frame_array = np.array(frame.convert('L'))
+            intensity_lower = np.percentile(frame_array, config.AUTOFOCUS_REQUIRED_SUBSTANCE_PERCENT)
+            intensity_upper = np.percentile(frame_array, 100-config.AUTOFOCUS_REQUIRED_SUBSTANCE_PERCENT)
+            intensity_range = intensity_upper - intensity_lower
+
+            if intensity_range > config.AUTOFOCUS_REQUIRED_CONTRAST:
                 focuses.append(get_focus(frame))
 
-        # r = random.randint(-4, 4)
-        # if r > 0:
-        #     frame = Image.open(f"Images/test_image{r}.jpg")
+                if focuses[-1] < 1 and len(focuses) > config.FOCUS_FRAME_AVG:
+                    auto_focus(mcm301obj, image_queue)
+                    focuses.clear()
+                    frame = image_queue.get(timeout=1000)
+                    focuses.append(get_focus(frame))
+                elif len(focuses) > config.FOCUS_FRAME_AVG*2 and np.average(focuses[0:-config.FOCUS_FRAME_AVG]) > np.average(focuses[-config.FOCUS_FRAME_AVG:-1])*config.FOCUS_BUFFER:
+                    auto_focus(mcm301obj, image_queue)
+                    focuses.clear()
+                    frame = image_queue.get(timeout=1000)
+                    focuses.append(get_focus(frame))
+            elif len(focuses) > config.FOCUS_FRAME_AVG*2 and np.average(focuses[0:-config.FOCUS_FRAME_AVG]) > np.average(focuses[-config.FOCUS_FRAME_AVG:-1])*config.FOCUS_BUFFER:
+                print("Waiting for object to focus on")
 
         frame_queue.put((frame, (x, y)))
         config.current_image += 1
@@ -859,10 +900,6 @@ class GUI:
         # Get the position of the click relative to the canvas
         click_x_canvas, click_y_canvas = event.x, event.y
 
-        # Get the canvas size
-        canvas_width = canvas.winfo_width()
-        canvas_height = canvas.winfo_height()
-
         # Retrieve the stored image position and scaling
         image_x0 = canvas.image_x0
         image_y0 = canvas.image_y0
@@ -890,8 +927,10 @@ class GUI:
         stage_move_x = move_x * config.NM_PER_PX
         stage_move_y = move_y * config.NM_PER_PX
 
+        movement_array = [stage_move_x, stage_move_y, -stage_move_x, -stage_move_y]
+
         # Move the stage accordingly
-        move_relative(self.stage_controller, [stage_move_x, stage_move_y], wait=False)
+        move_relative(self.stage_controller, [movement_array[(-config.VIEW_ROTATION)%4], movement_array[(-config.VIEW_ROTATION+1)%4]], wait=False)
 
 
 
@@ -927,21 +966,12 @@ class GUI:
         scan_area_frame = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR)
         scan_area_frame.grid(row=0, column=0, pady=10, sticky='w', columnspan=2)
 
-        # Corner 1 Button
-        corner1_button = tk.Button(
-            scan_area_frame,
-            text="Corner 1",
-            command=self.update_corner1_position,
-            bg=config.BUTTON_COLOR,
-            fg=config.TEXT_COLOR,
-            font=config.BUTTON_FONT
-        )
-        corner1_button.pack(side=tk.LEFT, padx=10)
+        
 
         # Corner 2 Button
         corner2_button = tk.Button(
             scan_area_frame,
-            text="Corner 2",
+            text="Top Left",
             command=self.update_corner2_position,
             bg=config.BUTTON_COLOR,
             fg=config.TEXT_COLOR,
@@ -949,24 +979,35 @@ class GUI:
         )
         corner2_button.pack(side=tk.LEFT, padx=10)
 
+        # Corner 1 Button
+        corner1_button = tk.Button(
+            scan_area_frame,
+            text="Bottom Right",
+            command=self.update_corner1_position,
+            bg=config.BUTTON_COLOR,
+            fg=config.TEXT_COLOR,
+            font=config.BUTTON_FONT
+        )
+        corner1_button.pack(side=tk.LEFT, padx=10)
+
         # Labels to display the positions of Corner 1 and Corner 2
         self.corner1_position_label = tk.Label(
             self.main_frame_controls,
-            text="Corner 1: Not Set",
+            text="Bottom Right: Not Set",
             bg=config.THEME_COLOR,
             fg=config.TEXT_COLOR,
             font=config.LABEL_FONT
         )
-        self.corner1_position_label.grid(row=1, column=0, pady=5, sticky='w', columnspan=2)
+        self.corner1_position_label.grid(row=2, column=0, pady=5, sticky='w', columnspan=2)
 
         self.corner2_position_label = tk.Label(
             self.main_frame_controls,
-            text="Corner 2: Not Set",
+            text="Top Left: Not Set",
             bg=config.THEME_COLOR,
             fg=config.TEXT_COLOR,
             font=config.LABEL_FONT
         )
-        self.corner2_position_label.grid(row=2, column=0, pady=5, sticky='w', columnspan=2)
+        self.corner2_position_label.grid(row=1, column=0, pady=5, sticky='w', columnspan=2)
 
         # Begin Search Button
         begin_search_button = tk.Button(
@@ -992,15 +1033,15 @@ class GUI:
         position = get_pos(self.stage_controller, (4, 5))
         config.corner1.__setitem__(slice(None), position)
         formatted_position = [f"{p:.2e}" for p in position]
-        self.corner1_position_label.config(text=f"Corner 1: {formatted_position}")
-        self.update_start_end(config.start_pos, config.end_pos)
+        self.corner1_position_label.config(text=f"Bottom Right: {formatted_position}")
+        self.update_start_end(config.corner1, config.corner2)
 
     def update_corner2_position(self):
         """Update Corner 2 position label."""
         position = get_pos(self.stage_controller, (4, 5))
         config.corner2.__setitem__(slice(None), position)
         formatted_position = [f"{p:.2e}" for p in position]
-        self.corner2_position_label.config(text=f"Corner 2: {formatted_position}")
+        self.corner2_position_label.config(text=f"Top Left: {formatted_position}")
         self.update_start_end(config.corner1, config.corner2)
 
     def update_start_end(self, start, end):
@@ -1138,6 +1179,10 @@ class GUI:
 
         self.results_frame_image.rowconfigure(0, weight=1) 
         self.results_frame_image.columnconfigure(0, weight=1)
+
+        rotation = view_num_to_rotation[config.VIEW_ROTATION % 4]
+        if rotation is not None:
+            image = image.transpose(rotation)
         canvas = CanvasImage(self.results_frame_image, image, self)
         canvas.grid(row=0, column=0)
 
@@ -1448,12 +1493,19 @@ class GUI:
         for row in range(3):
             navigation_frame.rowconfigure(row, weight=1)
 
+        stage_a = 4 if config.VIEW_ROTATION % 2 else 5
+        stage_b = 5 if config.VIEW_ROTATION % 2 else 4
+
+        dirs = [[-1, -1, 1, 1], [1, -1, 1, -1], [1, 1, -1, -1], [-1, 1, -1, 1]]
+        dir = dirs[config.VIEW_ROTATION%4]
+
+
         # Navigation buttons positions
         navigation_buttons = [
-            ("Up", (0, 1), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST)], stages=(5,), wait=False)),
-            ("Left", (1, 0), lambda: move_relative(self.stage_controller, pos=[int(-config.DIST)], stages=(4,), wait=False)),
-            ("Right", (1, 2), lambda: move_relative(self.stage_controller, pos=[int(config.DIST)], stages=(4,), wait=False)),
-            ("Down", (2, 1), lambda: move_relative(self.stage_controller, pos=[int(config.DIST)], stages=(5,), wait=False)),
+            ("Up", (0, 1), lambda: move_relative(self.stage_controller, pos=[int(dir[0]*config.DIST)], stages=(stage_a,), wait=False)),
+            ("Left", (1, 0), lambda: move_relative(self.stage_controller, pos=[int(dir[1]*config.DIST)], stages=(stage_b,), wait=False)),
+            ("Right", (1, 2), lambda: move_relative(self.stage_controller, pos=[int(dir[2]*config.DIST)], stages=(stage_b,), wait=False)),
+            ("Down", (2, 1), lambda: move_relative(self.stage_controller, pos=[int(dir[3]*config.DIST)], stages=(stage_a,), wait=False)),
         ]
 
         # Create navigation buttons with equal size
@@ -1477,8 +1529,8 @@ class GUI:
         focus_frame.columnconfigure(1, weight=1)
 
         focus_buttons = [
-            ("Focus +", 0, lambda: move_relative(self.stage_controller, pos=[10000], stages=(6,), wait=False)),
-            ("Focus -", 1, lambda: move_relative(self.stage_controller, pos=[-10000], stages=(6,), wait=False)),
+            ("Focus +", 0, lambda: move_relative(self.stage_controller, pos=[int(200000/config.CAMERA_PROPERTIES['lens'])], stages=(6,), wait=False)),
+            ("Focus -", 1, lambda: move_relative(self.stage_controller, pos=[-int(200000/config.CAMERA_PROPERTIES['lens'])], stages=(6,), wait=False)),
         ]
 
         for text, col, cmd in focus_buttons:
@@ -1739,7 +1791,7 @@ class GUI:
                 self.lens_entry.delete(0, tk.END)
                 self.lens_entry.insert(0, str(lens_value))
             config.CAMERA_PROPERTIES['lens'] = lens_value
-            config.NM_PER_PX = config.CAMERA_PROPERTIES['px_size']*1000/lens_value
+            config.CAMERA_PROPERTIES["px_size"] * config.CAMERA_BINNING**2 * 1000 / config.CAMERA_PROPERTIES["lens"]
             config.DIST = int(min(config.CAMERA_DIMS) * config.NM_PER_PX * (1 - config.IMAGE_OVERLAP))
             print(config.NM_PER_PX)
 
@@ -2107,7 +2159,6 @@ def cleanup(signum=None, frame=None):
     sys.exit(0)
 
 
-
 if __name__ == "__main__":
     # Set up signal handlers for unexpected termination
     signal.signal(signal.SIGINT, cleanup)
@@ -2135,7 +2186,7 @@ if __name__ == "__main__":
 
             # Open the camera without using 'with' so it stays open
             camera = sdk.open_camera(camera_list[-1])
-            logging.info(f"Camera {camera_list[0]} initialized.")
+            logging.info(f"Camera {camera_list[-1]} initialized.")  # Fixed index to match opened camera
 
             # Ensure the camera is properly disarmed before setting parameters
             if camera.is_armed:
@@ -2149,6 +2200,21 @@ if __name__ == "__main__":
             camera.exposure_time_us = config.CAMERA_PROPERTIES["exposure"]
             logging.debug(f"Camera gain set to {camera.gain}")
             logging.debug(f"Camera exposure time set to {camera.exposure_time_us} us")
+
+            # # **Set Binning Here**
+            # logging.info("Configuring camera binning...")
+            # try:
+            #     binx, biny = config.CAMERA_BINNING
+            #     camera.binx = binx
+            #     camera.biny = biny
+            #     logging.debug(f"Camera binning set to binx={camera.binx}, biny={camera.biny}")
+            # except (ValueError, TypeError) as e:
+            #     logging.error("CAMERA_BINNING must be a tuple or list with two integer values (binx, biny).")
+            #     sys.exit(1)
+            # except TLCameraError as e:
+            #     logging.exception("Failed to set camera binning:")
+            #     camera.dispose()
+            #     sys.exit(1)
 
             # Arm the camera
             try:
@@ -2173,10 +2239,11 @@ if __name__ == "__main__":
                     camera.sensor_pixel_height_um + camera.sensor_pixel_width_um
                 ) / 2
                 config.NM_PER_PX = (
-                    config.CAMERA_PROPERTIES["px_size"] * 1000 / config.CAMERA_PROPERTIES["lens"]
+                    config.CAMERA_PROPERTIES["px_size"] * config.CAMERA_BINNING**2 * 1000 / config.CAMERA_PROPERTIES["lens"]
                 )
 
-                config.CAMERA_DIMS = [camera.image_width_pixels, camera.image_height_pixels]
+                config.CAMERA_DIMS = [int(camera.image_width_pixels/(config.CAMERA_BINNING**2)), int(camera.image_height_pixels/(config.CAMERA_BINNING**2))]
+                print([camera.image_width_pixels, camera.image_height_pixels])
                 config.DIST = int(
                     min(config.CAMERA_DIMS) * config.NM_PER_PX * (1 - config.IMAGE_OVERLAP)
                 )
@@ -2212,7 +2279,7 @@ if __name__ == "__main__":
                     sys.exit(1)
 
                 logging.info("Waiting for image acquisition thread to finish...")
-                if GUI_main.image_acquisition_thread.is_alive():
+                if GUI_main and hasattr(GUI_main, 'image_acquisition_thread') and GUI_main.image_acquisition_thread.is_alive():
                     GUI_main.image_acquisition_thread.stop()
                     GUI_main.image_acquisition_thread.join()
 
@@ -2224,6 +2291,8 @@ if __name__ == "__main__":
                 if not getattr(camera, 'disposed', False):
                     try:
                         logging.info("Disarming and disposing the camera...")
+                        camera.binx = 1
+                        camera.biny = 1
                         camera.disarm()
                         camera.dispose()
                         camera.disposed = True  # Mark the camera as disposed
@@ -2232,7 +2301,6 @@ if __name__ == "__main__":
                 else:
                     logging.info("Camera already disposed.")
                 logging.info("App terminated. Goodbye!")
-
 
     except Exception as e:
         logging.exception("An error occurred during camera initialization:")
