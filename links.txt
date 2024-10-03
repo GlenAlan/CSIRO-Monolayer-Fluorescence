@@ -1,8 +1,0 @@
-Report:
-https://docs.google.com/document/d/1B7TANLwl1A_Ju0g1epOfW9kSQAASkw8FzAllbqzSpR8/edit
-
-Other Stuff:
-https://docs.google.com/document/d/11SegzHfN87koPaCfDvjrnpLEubQZwcn0g5RnaxrwXhc/edit?usp=sharing
-
-
-https://stackoverflow.com/questions/41656176/tkinter-canvas-zoom-move-pan

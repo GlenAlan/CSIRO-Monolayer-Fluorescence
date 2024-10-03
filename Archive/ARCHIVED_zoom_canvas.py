@@ -8,7 +8,7 @@ import math
 import platform
 
 import config
-from custom_definitions import *
+from ARCHIVED_custom_definitions import *
 
 OS = platform.system()
 

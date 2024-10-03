@@ -8,46 +8,50 @@ import typing
 import threading
 import queue
 import operator
-from matplotlib.backends.backend_tkagg import (
-    FigureCanvasTkAgg, NavigationToolbar2Tk)
-import matplotlib.pyplot as plt
+import logging
+import platform
+import warnings
+from datetime import datetime, timedelta
+from numba import njit, prange
 from concurrent.futures import ThreadPoolExecutor
-from scipy.fftpack import fft2, fftshift
-
-from scipy.optimize import curve_fit
-from scipy.signal.windows import hamming
-from datetime import timedelta
-
-import tkinter as tk
-from tkinter import ttk, messagebox, colorchooser
-from PIL import Image, ImageTk, ImageDraw, ImageColor
-
-import cv2  # OpenCV library for accessing the webcam
-import numpy as np
-from skimage.measure import shannon_entropy
 import torch
 
-from custom_definitions import *
-from zoom_canvas import *
-import config
+# GUI imports
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog, colorchooser, font as tkFont
 
-from MCM301_COMMAND_LIB import *
-
-import logging
+# Image processing and visualization
+import matplotlib.pyplot as plt
+from PIL import Image, ImageTk, ImageDraw, ImageColor
+import cv2 
+import numpy as np
+from skimage.measure import shannon_entropy
 
 # Thorlabs TSI SDK imports
 from thorlabs_tsi_sdk.tl_camera import TLCameraSDK, TLCamera, Frame, TLCameraError
 from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
 from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
 
+# Mathematical and scientific tools
+from scipy.fftpack import fft2, fftshift
+from scipy.optimize import curve_fit
+from scipy.signal.windows import hamming
 
-# Windows-specific setup
+# Custom modules
+import config
+
+
+from MCM301_COMMAND_LIB import *
+
+# Windows-specific setup (optional)
 try:
     from windows_setup import configure_path
     configure_path()
 except ImportError:
     configure_path = None
 
+# System detection
+OS = platform.system()
 
 
 # Configure logging
@@ -60,93 +64,1105 @@ logging.basicConfig(
     ]
 )
 
+# Define image PIL image rotation based on the view number config
+view_num_to_rotation = {
+                0: None,
+                1: Image.ROTATE_90,
+                2: Image.ROTATE_180,
+                3: Image.ROTATE_270
+            }
+
+# Define image cv2 image rotation based on the view number config
+view_num_to_rotation_cv = {
+                0: None,
+                1: cv2.ROTATE_90_COUNTERCLOCKWISE,
+                2: cv2.ROTATE_180,
+                3: cv2.ROTATE_90_CLOCKWISE
+            }
+
+
+def image_to_stage(center_coords, start, factor=1):
+    """
+    Converts image coordinates to stage coordinates based on a scaling factor and camera dimensions.
+    
+    Args:
+        center_coords (tuple): The center coordinates of the object in image space (e.g., in pixels).
+        start (tuple): The starting position of the stage in nanometers.
+        factor (int, optional): A scaling factor to adjust the image coordinates, default is 1.
+    
+    Returns:
+        tuple: The calculated raw stage coordinates in nanometers.
+    
+    The function takes the image coordinates and adjusts them using a scaling factor. It then 
+    computes the corresponding stage coordinates by considering the camera's dimensions and the 
+    number of nanometers per pixel (NM_PER_PX). The result is offset by the starting stage position 
+    to produce the final stage coordinates in nanometers.
+    """
+    
+    # Scale the center coordinates using the given factor
+    x, y = factor * center_coords[0], factor * center_coords[1] 
+    
+    # Calculate the raw stage coordinates in nanometers by adjusting the center coordinates 
+    # based on camera dimensions, pixel-to-nanometer ratio, and the start position.
+    center_coords_raw = int((x - config.CAMERA_DIMS[0]) * config.NM_PER_PX + start[0]), \
+                        int((y - config.CAMERA_DIMS[1]) * config.NM_PER_PX + start[1])
+    
+    # Return the calculated raw stage coordinates
+    return center_coords_raw
+
+
+def format_size(size_in_bytes):
+    """
+    Converts a file size in bytes to a human-readable string format.
+
+    Args:
+        size_in_bytes (int): The size of the file in bytes.
+
+    Returns:
+        str: The formatted size string, including the appropriate unit (B, KB, MB, GB, TB).
+    """
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size_in_bytes < 1024:
+            return f"{size_in_bytes:.2f} {unit}"
+        size_in_bytes /= 1024
+
+
+def scale_down_canvas(canvas, scale_factor):
+    """
+    Scales down an image canvas by a specified factor using interpolation.
+
+    Args:
+        canvas (numpy.ndarray): The original image canvas to be scaled down.
+        scale_factor (int): The factor by which to scale down the image. 
+                            A value of 1 means no scaling (returns the original image).
+
+    Returns:
+        numpy.ndarray: The scaled-down image canvas.
+    """
+    if scale_factor == 1:
+        return canvas
+    else:
+        downsampled_canvas = cv2.resize(
+            canvas,
+            (canvas.shape[1] // scale_factor, canvas.shape[0] // scale_factor),
+            interpolation=cv2.INTER_AREA
+        )
+        return downsampled_canvas
+
+
+def save_image(image, filename, scale_down_factor=1):
+    """
+    Saves an image to a file after optionally scaling it down.
+
+    Args:
+        image (numpy.ndarray): The image to be saved.
+        filename (str): The name of the file to save the image to.
+        scale_down_factor (int, optional): The factor by which to scale down the image before saving. 
+                                           Defaults to 1 (no scaling).
+
+    Returns:
+        None
+    """
+    file, ending = filename.split(".")
+    filename = file + datetime.now().strftime("_%Y-%m-%d_%H%M%S") + "." + ending
+    cv2.imwrite(filename, scale_down_canvas(image, scale_down_factor))
+    print(format_size(os.path.getsize(filename)))
+
+
+def stage_setup(home=True):
+    """
+    Initializes and sets up the stage for movement by creating an instance of the MCM301 object
+    and connecting to the first available device. If the device is successfully opened, 
+    the function optionally homes the stages (4 and 5), moving them to their reference positions.
+    
+    Args:
+        home (bool, optional): Whether to home the stages after initialization. Defaults to True.
+    
+    Returns:
+        mcm301obj (MCM301): The initialized MCM301 object ready for further operations.
+    
+    The function performs the following steps:
+    1. Initializes the stage controller object.
+    2. Lists connected devices and attempts to connect to the first one found.
+    3. Verifies that the device is open; if it isn't, the script exits.
+    4. If `home` is True, it homes stages 4 and 5, waits for the homing process to complete,
+       and moves the stages to an initial position.
+    """
+    
+    # Create an instance of the MCM301 class to control the stage.
+    mcm301obj = MCM301()
+
+    # List all connected MCM301 devices.
+    devs = MCM301.list_devices()
+    print(devs)
+    
+    # Exit if no devices are found.
+    if len(devs) <= 0:
+        print('There is no devices connected')
+        exit()
+
+    # Connect to the first available device by opening the connection.
+    device_info = devs[0]
+    sn = device_info[0]  # Extract the serial number of the first device.
+    print("connect ", sn)
+    
+    # Open the device connection with the specified serial number, baud rate (115200), and timeout.
+    hdl = mcm301obj.open(sn, 115200, 3)
+    if hdl < 0:
+        raise ConnectionError("Failed to connect to the stage controller.")
+
+    # Check if the device has been successfully opened.
+    if mcm301obj.is_open(sn) == 0:
+        print("MCM301IsOpen failed")
+        mcm301obj.close()  # Close the connection if unsuccessful.
+        exit()
+
+    # If homing is required, proceed with homing the stages.
+    if home:
+        # Home stages 4 and 5
+        for stage_num in (4, 5):
+            print(f"Homing stage {stage_num}")
+            mcm301obj.home(stage_num)
+
+        # Wait until both stages have completed homing.
+        bits_x, bits_y = [0], [0]
+        while bits_x[0] not in config.CONFIRMATION_BITS or bits_y[0] not in config.CONFIRMATION_BITS:
+            # Continuously check the status of each stage until the confirmation bits indicate completion.
+            mcm301obj.get_mot_status(4, [0], bits_x)
+            mcm301obj.get_mot_status(5, [0], bits_y)
+            # print(f"x: {bits_x}, y:{bits_y}") 
+
+        print("Homing complete")
+        print("Stage setup complete\n")
+
+        # After homing, move the stages to the position (1e6, 1e6) nanometers
+        move(mcm301obj, (1e6, 1e6), wait=False)
+
+    return mcm301obj
+
+
+def rgb2hex(color):
+    """
+    Converts an RGB color value to its hexadecimal string representation.
+    
+    Args:
+        color (tuple): A tuple representing the RGB color, where each value (r, g, b) is an integer between 0 and 255.
+    
+    Returns:
+        str: A string representing the color in hexadecimal format, prefixed with '#'.
+    
+    The function extracts the red (r), green (g), and blue (b) values from the input tuple, then formats them
+    into a hexadecimal string using the `{:02x}` format, ensuring that each color component is represented
+    by exactly two hexadecimal digits.
+    """
+    
+    # Unpack the RGB color tuple into separate red (r), green (g), and blue (b) values.
+    r, g, b = color
+    
+    # Format the RGB values as a hexadecimal string with two digits for each color component.
+    return '#{:02x}{:02x}{:02x}'.format(r, g, b)
+
+
+def get_pos(mcm301obj, stages=(4, 5, 6)):
+    """
+    Retrieves the current position of the specified stages.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        stages (list): A list of stage numbers for which the positions are to be retrieved.
+   
+    Returns:
+        pos (list): A list of positions corresponding to the specified stages,
+                    in nanometers.
+   
+    The function queries the current encoder value for each specified stage,
+    converts that value into nanometers, and returns the positions as a list.
+    """
+    pos = []
+    for stage in stages:
+        encoder_val, nm = [0], [0]
+         # Get the current encoder value for the stage
+        mcm301obj.get_mot_status(stage, encoder_val, [0])
+
+        # Convert the encoder value to nanometers
+        mcm301obj.convert_encoder_to_nm(stage, encoder_val[0], nm)
+
+        # Append the position to the list
+        pos.append(nm[0])
+    return pos
+
+
+def move(mcm301obj, pos, stages=(4, 5), wait=True):
+    """
+    Moves the stage to a specified position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (tuple): The desired position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+        wait (bool): Whether to wait for the movement to complete before returning.
+   
+    The function converts the given nanometer position into encoder units that the stage controller can use,
+    then commands the stage to move to those positions. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    print(f"Moving to {', '.join(str(p) for p in pos)}")
+
+    for i, stage in enumerate(stages):
+        coord = [0]
+
+        # Convert the positions from nanometers to encoder units
+        mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
+        print(f"Stage {stage}: {pos[i]} nm -> {coord[0]} encoder units")
+
+        # Move the stages to the required encoder position
+        mcm301obj.move_absolute(stage, coord[0])
+
+    if wait:
+        moving = True
+        while moving:
+            moving = False
+            for i, stage in enumerate(stages):
+                # Wait until the stages have finished moving by checking the status bits
+                bit = [0]
+                mcm301obj.get_mot_status(stage, [0], bit)
+                if bit[0] not in config.CONFIRMATION_BITS:
+                    moving = True
+                # print(bit[0])
+
+
+def move_relative(mcm301obj, pos=[0, 0], stages=(4, 5), wait=True):
+    """
+    Moves the stage to a specified position relative to the current position and waits for the movement to complete.
+
+    Args:
+        mcm301obj (MCM301): The MCM301 object that controls the stage.
+        pos (list): The desired relative position to move to, given as a tuple of coordinates in nanometers.
+        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+        wait (bool): Whether to wait for the movement to complete before returning.
+   
+    The function retrieves the current position of the specified stage, adds the relative position to it,
+    and then moves the stage to the new position. It continues to check the status of the stage
+    until it confirms that the movement is complete.
+    """
+    pos = [p + c for p, c in zip(pos, get_pos(mcm301obj, stages))] 
+    move(mcm301obj, pos, stages, wait)
+
+
+@njit(parallel=True)
+def bin_image_numba(image_array: np.ndarray, binx: int, biny: int) -> np.ndarray:
+    """
+    Reduces the resolution of an image and increased the exposure and noise by binning pixels along both axes.
+    
+    This function bins an image by summing groups of adjacent pixels into a single pixel. The image is processed 
+    in parallel using Numba's JIT compilation and parallel execution for faster performance.
+
+    Args:
+        image_array (np.ndarray): The input image array with shape (height, width, channels).
+        binx (int): The binning factor along the x-axis (width).
+        biny (int): The binning factor along the y-axis (height).
+
+    Returns:
+        np.ndarray: The binned image, with reduced resolution, and the same number of channels.
+    
+    Raises:
+        ValueError: If binx or biny is less than 1.
+    
+    The function works by dividing the input image into non-overlapping bins of size (binx, biny). It calculates 
+    the total pixel value for each bin and creates a new image with reduced dimensions and increased exposure.
+    """
+
+    # Validate binning factors
+    if binx < 1 or biny < 1:
+        raise ValueError("Binning factors binx and biny must be positive integers.")
+
+    # Get the dimensions of the input image
+    height, width, channels = image_array.shape
+
+    # Calculate the dimensions of the binned image
+    new_height = height // biny
+    new_width = width // binx
+
+    # Initialize the output binned image with zeros
+    binned_image = np.zeros((new_height, new_width, channels), dtype=np.float32)
+
+    # Loop through each pixel in the new binned image
+    for y in prange(new_height):  # Use prange for parallel execution across rows (height)
+        for x in range(new_width): 
+            for c in range(channels):  # Loop over color channels
+                sum_val = 0.0 
+
+                # Sum pixel values from the corresponding bin in the original image
+                for dy in range(biny): 
+                    for dx in range(binx):
+                        sum_val += image_array[y * biny + dy, x * binx + dx, c]
+
+                # Assign the pixel sum to the new binned image
+                binned_image[y, x, c] = sum_val
+
+    # Clip the values to ensure they are within the valid range [0, 255] and convert to uint8 type
+    binned_image = np.clip(binned_image, 0, 255).astype('uint8')
+
+    return binned_image
+
+
+def bin_image_cv2(image_array: np.ndarray, binx: int, biny: int) -> np.ndarray:
+    """
+    Bins an image using OpenCV to reduce its resolution.
+
+    Args:
+        image_array (np.ndarray): The input image with shape (height, width, channels).
+        binx (int): The binning factor along the x-axis (width).
+        biny (int): The binning factor along the y-axis (height).
+
+    Returns:
+        np.ndarray: The binned image with reduced resolution.
+    
+    Raises:
+        ValueError: If binx or biny is less than 1.
+    
+    This method reduces the image size using OpenCV's INTER_AREA interpolation, 
+    which is well-suited for downscaling.
+    """
+    
+    # Validate binning factors
+    if binx < 1 or biny < 1:
+        raise ValueError("Binning factors binx and biny must be positive integers.")
+    
+    # Get original image dimensions
+    height, width, channels = image_array.shape
+
+    # Calculate new dimensions after binning
+    new_width = width // binx
+    new_height = height // biny
+    
+    # Resize the image using OpenCV's INTER_AREA interpolation
+    binned_image = cv2.resize(image_array, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    
+    return binned_image
+
+
+
+def bin_image(image_array: np.ndarray, binx: int, biny: int) -> np.ndarray:
+    """
+    Combines two binning methods: Numba's binning and OpenCV's resizing.
+    This is done to balance the exposure increase without adding too much noise.
+
+    Args:
+        image_array (np.ndarray): The input image with shape (height, width, channels).
+        binx (int): The binning factor along the x-axis (width).
+        biny (int): The binning factor along the y-axis (height).
+
+    Returns:
+        np.ndarray: The image after being binned by both Numba and OpenCV.
+    
+    First, it bins the image using a custom Numba function, then applies further
+    resizing using OpenCV for efficient downsampling.
+    """
+    
+    # First bin using Numba for better exposure, then apply additional binning with OpenCV
+    return bin_image_cv2(bin_image_numba(image_array, binx, biny), binx, biny)
+
+
+
+class AutoScrollbar(ttk.Scrollbar):
+    """ A scrollbar that hides itself if it's not needed. Works only for grid geometry manager """
+    def __init__(self, master=None, orient='vertical', **kwargs):
+        # Determine the appropriate style based on orientation
+        if orient == 'horizontal':
+            style = 'Custom.Horizontal.TScrollbar'
+        else:
+            style = 'Custom.Vertical.TScrollbar'
+        super().__init__(master, style=style, orient=orient, **kwargs)
+
+    def set(self, lo, hi):
+        if float(lo) <= 0.0 and float(hi) >= 1.0:
+            self.grid_remove()
+        else:
+            self.grid()
+            super().set(lo, hi)
+
+    def pack(self, **kw):
+        raise tk.TclError('Cannot use pack with the widget ' + self.__class__.__name__)
+
+    def place(self, **kw):
+        raise tk.TclError('Cannot use place with the widget ' + self.__class__.__name__)
+
+class CanvasImage:
+    """ Display and zoom image """
+    def __init__(self, placeholder, im, gui):
+        """ Initialize the ImageFrame """
+        # Initialize styles
+        self.style = ttk.Style()
+        self.style.theme_use('default')  # Use the default theme as a base
+        self.gui = gui
+
+        # Configure custom styles for horizontal and vertical scrollbars
+        self.style.configure('Custom.Horizontal.TScrollbar',
+                             troughcolor=config.THEME_COLOR,
+                             background=config.BUTTON_COLOR,
+                             bordercolor=config.THEME_COLOR)
+        self.style.configure('Custom.Vertical.TScrollbar',
+                             troughcolor=config.THEME_COLOR,
+                             background=config.BUTTON_COLOR,
+                             bordercolor=config.THEME_COLOR)
+        self.style.configure('Custom.TFrame', background=config.THEME_COLOR)
+
+        # Copy the existing layout from the default scrollbar styles
+        self.style.layout("Custom.Horizontal.TScrollbar", self.style.layout("Horizontal.TScrollbar"))
+        self.style.layout("Custom.Vertical.TScrollbar", self.style.layout("Vertical.TScrollbar"))
+
+        # Initialize image scaling and other parameters
+        self.imscale = 1.0  # scale for the canvas image zoom, public for outer classes
+        self.__delta = 1.3  # zoom magnitude
+        self.__filter = Image.LANCZOS  # could be: NEAREST, BILINEAR, BICUBIC and ANTIALIAS
+        self.__previous_state = 0  # previous state of the keyboard
+        self.im = im  # PIL Image object
+
+        # Create ImageFrame in placeholder widget with custom style
+        self.__imframe = ttk.Frame(placeholder, style='Custom.TFrame')
+
+        # Configure the placeholder's grid to expand
+        placeholder.rowconfigure(0, weight=1)
+        placeholder.columnconfigure(0, weight=1)
+
+        # Vertical and horizontal scrollbars for canvas
+        hbar = AutoScrollbar(self.__imframe, orient='horizontal')
+        vbar = AutoScrollbar(self.__imframe, orient='vertical')
+        hbar.grid(row=1, column=0, sticky='we')
+        vbar.grid(row=0, column=1, sticky='ns')
+
+        # Create canvas and bind it with scrollbars. Public for outer classes
+        self.canvas = tk.Canvas(
+            self.__imframe,
+            highlightthickness=0,
+            xscrollcommand=hbar.set,
+            yscrollcommand=vbar.set,
+            width=800,
+            height=800,
+            bg=config.THEME_COLOR  # Set canvas background to config.THEME_COLOR
+        )
+        self.canvas.grid(row=0, column=0, sticky='nswe')
+        self.canvas.update()  # wait till canvas is created
+
+        hbar.configure(command=self.__scroll_x)  # bind scrollbars to the canvas
+        vbar.configure(command=self.__scroll_y)
+
+        # Bind events to the Canvas
+        self.canvas.bind('<Configure>', lambda event: self.__show_image())  # canvas is resized
+        self.canvas.bind('<ButtonPress-1>', self.__move_from)  # remember canvas position
+        self.canvas.bind('<B1-Motion>', self.__move_to)  # move canvas to the new position
+        self.canvas.bind('<MouseWheel>', self.__wheel)  # zoom for Windows and MacOS, but not Linux
+        self.canvas.bind('<Button-5>', self.__wheel)  # zoom for Linux, wheel scroll down
+        self.canvas.bind('<Button-4>', self.__wheel)  # zoom for Linux, wheel scroll up
+        self.canvas.bind('<Double-Button-1>', self.__double_click)  # handle double-click for coordinates
+        # Handle keystrokes in idle mode, because program slows down on weak computers,
+        # when too many key stroke events in the same time
+        self.canvas.bind('<Key>', lambda event: self.canvas.after_idle(self.__keystroke, event))
+
+        # Decide if this image is huge or not
+        self.__huge = False  # huge or not
+        self.__huge_size = 14000  # define size of the huge image
+        self.__band_width = 1024  # width of the tile band
+        Image.MAX_IMAGE_PIXELS = 1000000000  # suppress DecompressionBombError for big image
+        with warnings.catch_warnings():  # suppress DecompressionBombWarning for big image
+            warnings.simplefilter('ignore')
+            self.__image = self.im  # open image, but don't load it into RAM
+
+        self.imwidth, self.imheight = self.__image.size  # public for outer classes
+        self.__min_side = min(self.imwidth, self.imheight)  # get the smaller image side
+        logging.debug(f"Image size: {self.imwidth}x{self.imheight}")
+        logging.debug(f"Minimum side: {self.__min_side}")
+
+        # Check if the image is considered "huge"
+        if (self.imwidth * self.imheight > self.__huge_size * self.__huge_size and
+            hasattr(self.__image, 'tile') and
+            self.__image.tile and
+            self.__image.tile[0][0] == 'raw'):  # only raw images could be tiled
+            self.__huge = True  # image is huge
+            logging.debug("Image is huge and tiled as 'raw'.")
+            self.__offset = self.__image.tile[0][2]  # initial tile offset
+            self.__tile = [
+                self.__image.tile[0][0],  # it has to be 'raw'
+                [0, 0, self.imwidth, 0],  # tile extent (a rectangle)
+                self.__offset,
+                self.__image.tile[0][3]  # list of arguments to the decoder
+            ]
+        else:
+            self.__huge = False
+            logging.debug("Image is not huge or does not have 'raw' tiling.")
+
+        # Create image pyramid
+        if self.__huge:
+            self.__pyramid = [self.smaller()]
+        else:
+            self.__pyramid = [self.im]
+        # Set ratio coefficient for image pyramid
+        self.__ratio = max(self.imwidth, self.imheight) / self.__huge_size if self.__huge else 1.0
+        self.__curr_img = 0  # current image from the pyramid
+        self.__scale = self.imscale * self.__ratio  # image pyramid scale
+        self.__reduction = 2  # reduction degree of image pyramid
+        (w, h), m, j = self.__pyramid[-1].size, 512, 0
+        n = math.ceil(math.log(min(w, h) / m, self.__reduction)) + 1  # image pyramid length
+        while w > m and h > m:  # top pyramid image is around 512 pixels in size
+            j += 1
+            logging.debug(f"Creating image pyramid: {j} from {n}")
+            w /= self.__reduction  # divide by reduction degree
+            h /= self.__reduction  # divide by reduction degree
+            self.__pyramid.append(self.__pyramid[-1].resize((int(w), int(h)), self.__filter))
+        logging.debug("Image pyramid creation complete.")
+
+        # Put image into container rectangle and use it to set proper coordinates to the image
+        self.container = self.canvas.create_rectangle((0, 0, self.imwidth, self.imheight), width=0)
+        self.__show_image()  # show image on the canvas
+        self.canvas.focus_set()  # set focus on the canvas
+
+    def smaller(self):
+        """ Resize image proportionally and return smaller image """
+        w1, h1 = float(self.imwidth), float(self.imheight)
+        w2, h2 = float(self.__huge_size), float(self.__huge_size)
+        aspect_ratio1 = w1 / h1
+        aspect_ratio2 = w2 / h2  # it equals to 1.0
+        if aspect_ratio1 == aspect_ratio2:
+            image = Image.new('RGB', (int(w2), int(h2)))
+            k = h2 / h1  # compression ratio
+            w = int(w2)  # band length
+        elif aspect_ratio1 > aspect_ratio2:
+            image = Image.new('RGB', (int(w2), int(w2 / aspect_ratio1)))
+            k = h2 / w1  # compression ratio
+            w = int(w2)  # band length
+        else:  # aspect_ratio1 < aspect_ratio2
+            image = Image.new('RGB', (int(h2 * aspect_ratio1), int(h2)))
+            k = h2 / h1  # compression ratio
+            w = int(h2 * aspect_ratio1)  # band length
+        i, j, n = 0, 0, math.ceil(self.imheight / self.__band_width)
+        while i < self.imheight:
+            j += 1
+            logging.debug(f"Opening image: {j} from {n}")
+            band = min(self.__band_width, self.imheight - i)  # width of the tile band
+            if self.__huge:
+                self.__tile[1][3] = band  # set band width
+                self.__tile[2] = self.__offset + self.imwidth * i * 3  # tile offset (3 bytes per pixel)
+                self.__image.close()
+                self.__image = self.im  # reopen / reset image
+                self.__image.size = (self.imwidth, band)  # set size of the tile band
+                self.__image.tile = [self.__tile]  # set tile
+                cropped = self.__image.crop((0, 0, self.imwidth, band))  # crop tile band
+                image.paste(cropped.resize((w, int(band * k) + 1), self.__filter), (0, int(i * k)))
+            i += band
+        logging.debug("Image resizing complete.")
+        return image
+
+    def redraw_figures(self):
+        """ Dummy function to redraw figures in the children classes """
+        pass
+
+    def grid(self, **kw):
+        """ Put CanvasImage widget on the parent widget """
+        self.__imframe.grid(**kw)  # place CanvasImage widget on the grid
+        self.__imframe.grid(sticky='nswe')  # make frame container sticky
+        self.__imframe.rowconfigure(0, weight=1)  # make canvas expandable
+        self.__imframe.columnconfigure(0, weight=1)
+
+    def pack(self, **kw):
+        """ Exception: cannot use pack with this widget """
+        raise Exception('Cannot use pack with the widget ' + self.__class__.__name__)
+
+    def place(self, **kw):
+        """ Exception: cannot use place with this widget """
+        raise Exception('Cannot use place with the widget ' + self.__class__.__name__)
+
+    # noinspection PyUnusedLocal
+    def __scroll_x(self, *args, **kwargs):
+        """ Scroll canvas horizontally and redraw the image """
+        self.canvas.xview(*args)  # scroll horizontally
+        self.__show_image()  # redraw the image
+
+    # noinspection PyUnusedLocal
+    def __scroll_y(self, *args, **kwargs):
+        """ Scroll canvas vertically and redraw the image """
+        self.canvas.yview(*args)  # scroll vertically
+        self.__show_image()  # redraw the image
+
+    def __show_image(self):
+        """ Show image on the Canvas. Implements correct image zoom almost like in Google Maps """
+        box_image = self.canvas.coords(self.container)  # get image area
+        box_canvas = (
+            self.canvas.canvasx(0),  # get visible area of the canvas
+            self.canvas.canvasy(0),
+            self.canvas.canvasx(self.canvas.winfo_width()),
+            self.canvas.canvasy(self.canvas.winfo_height())
+        )
+        box_img_int = tuple(map(int, box_image))  # convert to integer or it will not work properly
+        # Get scroll region box
+        box_scroll = [
+            min(box_img_int[0], box_canvas[0]),
+            min(box_img_int[1], box_canvas[1]),
+            max(box_img_int[2], box_canvas[2]),
+            max(box_img_int[3], box_canvas[3])
+        ]
+        # Horizontal part of the image is in the visible area
+        if box_scroll[0] == box_canvas[0] and box_scroll[2] == box_canvas[2]:
+            box_scroll[0] = box_img_int[0]
+            box_scroll[2] = box_img_int[2]
+        # Vertical part of the image is in the visible area
+        if box_scroll[1] == box_canvas[1] and box_scroll[3] == box_canvas[3]:
+            box_scroll[1] = box_img_int[1]
+            box_scroll[3] = box_img_int[3]
+        # Convert scroll region to tuple and to integer
+        self.canvas.configure(scrollregion=tuple(map(int, box_scroll)))  # set scroll region
+        x1 = max(box_canvas[0] - box_image[0], 0)  # get coordinates (x1,y1,x2,y2) of the image tile
+        y1 = max(box_canvas[1] - box_image[1], 0)
+        x2 = min(box_canvas[2], box_image[2]) - box_image[0]
+        y2 = min(box_canvas[3], box_image[3]) - box_image[1]
+        if int(x2 - x1) > 0 and int(y2 - y1) > 0:  # show image if it is in the visible area
+            if self.__huge and self.__curr_img < 0:  # show huge image, which does not fit in RAM
+                h = int((y2 - y1) / self.imscale)  # height of the tile band
+                self.__tile[1][3] = h  # set the tile band height
+                self.__tile[2] = self.__offset + self.imwidth * int(y1 / self.imscale) * 3
+                self.__image.close()
+                self.__image = self.im  # reopen / reset image
+                self.__image.size = (self.imwidth, h)  # set size of the tile band
+                self.__image.tile = [self.__tile]
+                image = self.__image.crop((int(x1 / self.imscale), 0, int(x2 / self.imscale), h))
+            else:  # show normal image
+                image = self.__pyramid[max(0, self.__curr_img)].crop(  # crop current img from pyramid
+                    (
+                        int(x1 / self.__scale),
+                        int(y1 / self.__scale),
+                        int(x2 / self.__scale),
+                        int(y2 / self.__scale)
+                    )
+                )
+            #
+            imagetk = ImageTk.PhotoImage(
+                image.resize((int(x2 - x1), int(y2 - y1)), self.__filter)
+            )
+            imageid = self.canvas.create_image(
+                max(box_canvas[0], box_img_int[0]),
+                max(box_canvas[1], box_img_int[1]),
+                anchor='nw',
+                image=imagetk
+            )
+            self.canvas.lower(imageid)  # set image into background
+            self.canvas.imagetk = imagetk  # keep an extra reference to prevent garbage-collection
+
+    def __move_from(self, event):
+        """ Remember previous coordinates for scrolling with the mouse """
+        self.canvas.scan_mark(event.x, event.y)
+
+    def __move_to(self, event):
+        """ Drag (move) canvas to the new position """
+        self.canvas.scan_dragto(event.x, event.y, gain=1)
+        self.__show_image()  # zoom tile and show it on the canvas
+
+    def __double_click(self, event):
+        """ Get the original pixel coordinates of the image on double-click """
+        # Get the canvas coordinates (including any panning/scrolling)
+        x = self.canvas.canvasx(event.x) - self.canvas.coords(self.container)[0]
+        y = self.canvas.canvasy(event.y) - self.canvas.coords(self.container)[1]
+
+        # Scale back to the original image size by dividing by the current zoom (imscale)
+        x_original = x / self.imscale
+        y_original = y / self.imscale
+
+        # Ensure the coordinates are within the bounds of the original image size
+        x_original = max(0, min(self.imwidth, x_original))
+        y_original = max(0, min(self.imheight, y_original))
+
+        print(f"Original image coordinates: ({int(x_original)}, {int(y_original)})")
+        movement_array = [x_original, y_original, self.imwidth-x_original, self.imheight-y_original]
+        final_x, final_y = image_to_stage([int(movement_array[(-config.VIEW_ROTATION)%4]), int(movement_array[(-config.VIEW_ROTATION+1)%4])], config.start_pos, config.RESULTS_IMAGE_DOWNSCALE)
+        print(f"Final stage coordinates: ({final_x}, {final_y})")
+        move(self.gui.stage_controller, (final_x, final_y), wait=False)
+
+    def outside(self, x, y):
+        """ Checks if the point (x,y) is outside the image area """
+        bbox = self.canvas.coords(self.container)  # get image area
+        if bbox[0] < x < bbox[2] and bbox[1] < y < bbox[3]:
+            return False  # point (x,y) is inside the image area
+        else:
+            return True  # point (x,y) is outside the image area
+
+    def __wheel(self, event):
+        """ Zoom with mouse wheel """
+        x = self.canvas.canvasx(event.x)  # get coordinates of the event on the canvas
+        y = self.canvas.canvasy(event.y)
+        if self.outside(x, y):
+            return  # zoom only inside image area
+        scale = 1.0
+        if event.delta or event.num in [4, 5]:  # Windows/MacOS or Linux
+            if event.delta < 0 or event.num == 5:  # scroll down, zoom out, smaller
+                if round(self.__min_side * self.imscale) < 30:
+                    return  # image is less than 30 pixels
+                self.imscale /= self.__delta
+                scale /= self.__delta
+            elif event.delta > 0 or event.num == 4:  # scroll up, zoom in, bigger
+                i = float(min(self.canvas.winfo_width(), self.canvas.winfo_height()) / 2)
+                if i < self.imscale:
+                    return  # 1 pixel is bigger than the visible area
+                self.imscale *= self.__delta
+                scale *= self.__delta
+        # Take appropriate image from the pyramid
+        k = self.imscale * self.__ratio  # temporary coefficient
+        self.__curr_img = min((-1) * int(math.log(k, self.__reduction)), len(self.__pyramid) - 1)
+        self.__scale = k * math.pow(self.__reduction, max(0, self.__curr_img))
+        #
+        self.canvas.scale('all', x, y, scale, scale)  # rescale all objects
+        # Redraw some figures before showing image on the screen
+        self.redraw_figures()  # method for child classes
+        self.__show_image()
+
+    def __keystroke(self, event):
+        """ Scrolling with the keyboard.
+            Independent from the language of the keyboard, CapsLock, <Ctrl>+<key>, etc. """
+        if event.state - self.__previous_state == 4:  # means that the Control key is pressed
+            pass  # do nothing if Control key is pressed
+        else:
+            self.__previous_state = event.state  # remember the last keystroke state
+            # Up, Down, Left, Right keystrokes
+            if event.keycode in [68, 39, 102]:  # scroll right, keys 'd' or 'Right'
+                self.__scroll_x('scroll', 1, 'unit', event=event)
+            elif event.keycode in [65, 37, 100]:  # scroll left, keys 'a' or 'Left'
+                self.__scroll_x('scroll', -1, 'unit', event=event)
+            elif event.keycode in [87, 38, 104]:  # scroll up, keys 'w' or 'Up'
+                self.__scroll_y('scroll', -1, 'unit', event=event)
+            elif event.keycode in [83, 40, 98]:  # scroll down, keys 's' or 'Down'
+                self.__scroll_y('scroll', 1, 'unit', event=event)
+
+    def crop(self, bbox):
+        """ Crop rectangle from the image and return it """
+        if self.__huge:  # image is huge and not totally in RAM
+            band = bbox[3] - bbox[1]  # width of the tile band
+            self.__tile[1][3] = band  # set the tile height
+            self.__tile[2] = self.__offset + self.imwidth * bbox[1] * 3  # set offset of the band
+            self.__image.close()
+            self.__image = self.im  # reopen / reset image
+            self.__image.size = (self.imwidth, band)  # set size of the tile band
+            self.__image.tile = [self.__tile]
+            return self.__image.crop((bbox[0], 0, bbox[2], band))
+        else:  # image is totally in RAM
+            return self.__pyramid[0].crop(bbox)
+
+    def destroy(self):
+        """ ImageFrame destructor """
+        self.__image.close()
+        for img in self.__pyramid:
+            img.close()  # close all pyramid images
+        del self.__pyramid[:]  # delete pyramid list
+        del self.__pyramid  # delete pyramid variable
+        self.canvas.destroy()
+        self.__imframe.destroy()
+
+
+class ImageAcquisitionThread(threading.Thread):
+    """
+    A thread that continuously acquires images from the ThorLabs camera and processes them. Images are placed into a queue for further use.
+
+    Args:
+        camera (Camera): The camera object from which to acquire images.
+        rotation_angle (int, optional): The angle to rotate the captured images, default is 0 degrees. This acts as calibration for the camera orientation.
+    """
+    
+    def __init__(self, camera, rotation_angle=0):
+        """
+        Initializes the image acquisition thread with the given camera and optional rotation angle.
+        """
+        super(ImageAcquisitionThread, self).__init__()
+        self._camera = camera
+        self._previous_timestamp = 0
+        self._rotation_angle = rotation_angle 
+
+        logging.debug("Initializing ImageAcquisitionThread...")
+
+        # Determine if the camera supports color processing
+        if self._camera.camera_sensor_type != SENSOR_TYPE.BAYER:
+            self._is_color = False
+            logging.debug("Camera is monochrome.")
+        else:
+            # Set up color processing for Bayer sensor
+            self._mono_to_color_sdk = MonoToColorProcessorSDK()
+            self._image_width = self._camera.image_width_pixels
+            self._image_height = self._camera.image_height_pixels
+            self._mono_to_color_processor = self._mono_to_color_sdk.create_mono_to_color_processor(
+                SENSOR_TYPE.BAYER,
+                self._camera.color_filter_array_phase,
+                self._camera.get_color_correction_matrix(),
+                self._camera.get_default_white_balance_matrix(),
+                self._camera.bit_depth
+            )
+            self._is_color = True
+            logging.debug("Camera is color. MonoToColorProcessor initialized.")
+
+        self._bit_depth = camera.bit_depth
+        self._camera.image_poll_timeout_ms = 0  # Non-blocking polling for images
+        self._image_queue = queue.Queue(maxsize=2)  # Image queue with a limit of 2 images
+        self._stop_event = threading.Event()  # Event to stop the thread
+        logging.debug("ImageAcquisitionThread initialized.")
+
+    def get_output_queue(self):
+        """
+        Returns the queue where processed images are stored.
+        
+        Returns:
+            queue.Queue: The image queue.
+        """
+        return self._image_queue
+
+    def stop(self):
+        """
+        Signals the thread to stop.
+        """
+        self._stop_event.set()
+
+    def _get_color_image(self, frame):
+        """
+        Processes a color image by converting raw Bayer data to RGB, binning, and rotating the image.
+        
+        Args:
+            frame (Frame): The frame containing the raw image data.
+
+        Returns:
+            Image: The processed color image as a PIL Image object.
+        """
+        # Check for changes in image dimensions
+        width = frame.image_buffer.shape[1]
+        height = frame.image_buffer.shape[0]
+        if (width != self._image_width) or (height != self._image_height):
+            self._image_width = width
+            self._image_height = height
+            logging.info("Image dimension change detected, image acquisition thread was updated")
+
+        # Convert monochrome to color (RGB)
+        color_image_data = self._mono_to_color_processor.transform_to_24(
+            frame.image_buffer,
+            self._image_width,
+            self._image_height
+        )
+        color_image_data = color_image_data.reshape(self._image_height, self._image_width, 3)
+
+        # Apply binning
+        binx = biny = config.CAMERA_BINNING
+        binned_image_data = bin_image(color_image_data, binx, biny)
+
+        # Convert to uint8 format
+        binned_image_data = binned_image_data.astype('uint8')
+
+        # Create PIL image
+        pil_image = Image.fromarray(binned_image_data, mode='RGB')
+
+        # Rotate the image if required
+        if self._rotation_angle != 0:
+            pil_image = pil_image.rotate(self._rotation_angle, expand=True)
+
+        return pil_image
+
+    def _get_image(self, frame):
+        """
+        Processes a monochrome image by scaling it and rotating if needed.
+        
+        Args:
+            frame (Frame): The frame containing the raw image data.
+
+        Returns:
+            Image: The processed monochrome image as a PIL Image object.
+        """
+        # Scale the image to 8 bits per pixel
+        scaled_image = frame.image_buffer >> (self._bit_depth - 8)
+        pil_image = Image.fromarray(scaled_image)
+
+        # Rotate the image if required
+        if self._rotation_angle != 0:
+            pil_image = pil_image.rotate(self._rotation_angle, expand=True)
+
+        return pil_image
+
+    def run(self):
+        """
+        Main loop of the thread that continuously acquires and processes images until the thread is stopped.
+        """
+        logging.info("Image acquisition thread started.")
+        while not self._stop_event.is_set():
+            try:
+                # Trigger the camera to capture an image
+                self._camera.issue_software_trigger()
+                frame = self._camera.get_pending_frame_or_null()  # Get the frame
+
+                if frame is not None:
+                    # Process the frame based on whether the camera is color or monochrome
+                    if self._is_color:
+                        pil_image = self._get_color_image(frame)
+                    else:
+                        pil_image = self._get_image(frame)
+
+                    # Add the processed image to the queue
+                    try:
+                        self._image_queue.put_nowait(pil_image)
+                    except queue.Full:
+                        pass  # Drop the frame if the queue is full
+                else:
+                    time.sleep(0.01)  # Retry after a short delay if no frame is available
+            except TLCameraError as error:
+                logging.exception("Camera error encountered in image acquisition thread:")
+                break
+            except Exception as error:
+                logging.exception("Encountered error in image acquisition thread:")
+                break
+        
+        logging.info("Image acquisition thread has stopped.")
+        
+        # Cleanup color processor resources
+        if self._is_color:
+            self._mono_to_color_processor.dispose()
+            self._mono_to_color_sdk.dispose()
+
+
 
 class LiveViewCanvas(tk.Canvas):
+    """
+    A custom Tkinter Canvas that displays live images from a queue, updating the image display based on
+    resizing events and controlling image scaling to fit the canvas. Images are updated at a regular interval defined in config.
+
+    Inherits from `tk.Canvas` and adds functionality for live image updating and responsive resizing.
+    
+    Args:
+        parent (tk.Widget): The parent Tkinter widget that this canvas will be placed into.
+        image_queue (queue.Queue): A queue holding images to be displayed. The queue is expected to provide PIL images.
+    
+    Attributes:
+        image_queue (queue.Queue): The queue from which images are retrieved.
+        is_active (bool): A flag to control whether image updates should continue.
+        original_image_width (int): The width of the original image before resizing.
+        original_image_height (int): The height of the original image before resizing.
+        displayed_image_width (int): The width of the currently displayed image.
+        displayed_image_height (int): The height of the currently displayed image.
+        current_image (PIL.Image): The current image being displayed.
+        displayed_image (PIL.Image): The resized version of the current image being displayed.
+        scale (float): The scaling factor used to resize the image.
+    """
+    
     def __init__(self, parent, image_queue):
+        """
+        Initializes the LiveViewCanvas with a parent widget and an image queue. It also binds a resizing event
+        to the canvas and starts the image update loop.
+
+        Args:
+            parent (tk.Widget): The parent widget in which this canvas resides.
+            image_queue (queue.Queue): The queue holding the images to be displayed.
+        """
+        # Initialize the parent canvas, set background color, and remove highlight borders
         super().__init__(parent, bg=config.THEME_COLOR, highlightthickness=0)
-        self.image_queue = image_queue
-        self.is_active = True  # Initialize attribute to control image updates
-        self.bind("<Configure>", self.on_resize)  # Bind resizing event
+        
+        self.image_queue = image_queue  # Store the image queue
+        self.is_active = True  # Flag to control whether the canvas should continue updating images
+        
+        # Bind the canvas resize event to the on_resize method
+        self.bind("<Configure>", self.on_resize)
+
+        # Start the image display loop
         self._display_image()
 
     def _display_image(self):
+        """
+        Continuously retrieves and displays the latest image from the image queue. If no new image is available,
+        it retries after a delay defined in the configuration. This method ensures that only the most recent image
+        is displayed if multiple images are queued.
+        """
         if not self.is_active:
+            # If updates are paused, retry after the configured delay
             self.after(config.UPDATE_DELAY, self._display_image)
             return
 
-        image = None
+        image = None  # Initialize image variable
+        
         try:
-            # Retrieve all available images and use the latest one
+            # Continuously retrieve the latest available image from the queue
             while True:
                 try:
-                    image = self.image_queue.get_nowait()
+                    image = self.image_queue.get_nowait()  # Get an image from the queue without waiting
                 except queue.Empty:
-                    break
+                    break  # Exit the loop if no more images are in the queue
         except Exception as e:
             print(f"Error retrieving image from queue: {e}")
 
+        # If an image was successfully retrieved, update the canvas display
         if image:
             self.update_image_display(image)
 
-        self.after(config.UPDATE_DELAY, self._display_image)  # Continue updating the image
-
+        # Schedule the next update after a delay
+        self.after(config.UPDATE_DELAY, self._display_image)
 
     def update_image_display(self, image):
-        rotation = view_num_to_rotation[config.VIEW_ROTATION % 4]
-        if rotation is not None:
-            image = image.transpose(rotation)
+        """
+        Resizes the given image to fit within the canvas while maintaining the aspect ratio. It also handles
+        any necessary rotation based on the current view setting. The image is then drawn on the canvas.
 
-        # Validate image dimensions
+        Args:
+            image (PIL.Image): The image to be displayed on the canvas.
+        """
+        # Rotate the image based on the current view setting
+        rotation = view_num_to_rotation[config.VIEW_ROTATION % 4]  # Determine the rotation angle based on config
+        if rotation is not None:
+            image = image.transpose(rotation)  # Apply the rotation if required
+
+        # Check for valid image dimensions
         if image.width <= 0 or image.height <= 0:
             logging.warning(f"Received image with invalid dimensions: {image.width}x{image.height}. Skipping resize.")
             return
 
-        # Store the original image size
+        # Store the original image size before resizing
         self.original_image_width = image.width
         self.original_image_height = image.height
-        self.current_image = image  # Store the current image
+        self.current_image = image  # Save the current image for potential redrawing
 
         # Get the current size of the canvas
         canvas_width = self.winfo_width()
         canvas_height = self.winfo_height()
 
-        # Avoid division by zero
+        # Skip if the canvas has zero width or height (e.g., during initial rendering)
         if canvas_width == 0 or canvas_height == 0:
             logging.warning("Canvas width or height is zero. Skipping image display.")
             return
 
-        # Compute the scaling factors to fit the image to the canvas
+        # Calculate scaling factors to fit the image within the canvas
         scale_x = canvas_width / self.original_image_width
         scale_y = canvas_height / self.original_image_height
-        self.scale = min(scale_x, scale_y)
+        self.scale = min(scale_x, scale_y)  # Use the smaller scaling factor to preserve aspect ratio
 
         # Ensure scaling factors are positive
         if self.scale <= 0:
             logging.warning(f"Invalid scaling factors: scale_x={scale_x}, scale_y={scale_y}. Skipping resize.")
             return
 
-        # Resize the image accordingly
-        new_width = max(int(self.original_image_width * self.scale), 1)  # Ensure width is at least 1
-        new_height = max(int(self.original_image_height * self.scale), 1)  # Ensure height is at least 1
-        self.displayed_image = image.resize((new_width, new_height), Image.LANCZOS)
+        # Resize the image using the calculated scaling factor
+        new_width = max(int(self.original_image_width * self.scale), 1)  # Ensure minimum width is 1 pixel
+        new_height = max(int(self.original_image_height * self.scale), 1)  # Ensure minimum height is 1 pixel
+        self.displayed_image = image.resize((new_width, new_height), Image.LANCZOS)  # Resize the image with high-quality resampling
 
-        # Store the displayed image size
+        # Store the displayed image size for reference
         self.displayed_image_width = new_width
         self.displayed_image_height = new_height
 
-        # Clear the canvas
+        # Clear the canvas before drawing the new image
         self.delete("all")
 
-        # Update the image on the canvas
+        # Convert the resized image into a format compatible with Tkinter
         self.photo_image = ImageTk.PhotoImage(self.displayed_image)
-        # Center the image on the canvas
-        self.image_x0 = (canvas_width - new_width) // 2
-        self.image_y0 = (canvas_height - new_height) // 2
-        self.create_image(self.image_x0, self.image_y0, anchor='nw', image=self.photo_image)
 
+        # Center the image on the canvas
+        self.image_x0 = (canvas_width - new_width) // 2  # X-coordinate for centering
+        self.image_y0 = (canvas_height - new_height) // 2  # Y-coordinate for centering
+        self.create_image(self.image_x0, self.image_y0, anchor='nw', image=self.photo_image)  # Draw the image
 
     def on_resize(self, event):
-        # Redraw the image when the canvas is resized
+        """
+        Redraws the current image when the canvas is resized. This ensures that the image is always
+        properly scaled to fit the new canvas size.
+        
+        Args:
+            event (tk.Event): The resize event triggered when the canvas is resized.
+        """
+        # Redraw the image using the updated canvas dimensions if an image is currently being displayed
         if hasattr(self, 'current_image'):
             self.update_image_display(self.current_image)
 
@@ -189,7 +1205,7 @@ def add_image_to_canvas(canvas, image, center_coords, alpha=0.5):
     region_width = x_end - x_start
     region_height = y_end - y_start
 
-    # Convert the relevant regions to PyTorch tensors for GPU processing
+    # Convert the relevant regions to PyTorch tensors for CPU/GPU processing
     canvas_region = torch.tensor(canvas[y_start:y_end, x_start:x_end], dtype=torch.float32, device=config.ACCEL_DEVICE)
     image_region = torch.tensor(cropped_image[y_offset:y_offset + region_height, x_offset:x_offset + region_width], dtype=torch.float32, device=config.ACCEL_DEVICE)
 
@@ -281,9 +1297,6 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
     # Initialize the canvas
     canvas = np.zeros((output_size[1], output_size[0], 4), dtype=np.uint8)  # 4 channels (RGBA)
 
-    # Start timing right before initializing ThreadPoolExecutor
-    t1 = time.time()
-
     # Lock for thread-safe updates to the canvas
     lock = threading.Lock()
 
@@ -312,21 +1325,13 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
         for future in futures:
             future.result()
 
-    # End timing after all processing is complete
-    t2 = time.time()
-    print("Image stitching complete")
-    print(f"Time taken: {t2 - t1:.2f} seconds")
-
     print("Saving final image...")
-    #cv2.imwrite("Images/final.png", canvas)
-    #cv2.imwrite("Images/final_compressed.png", canvas, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
     save_image(canvas, "Images/final_scan.png", 2)
 
     print("Save complete")
 
     scaled_canvas = scale_down_canvas(canvas, 4)
-
     stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
     stitched_view_canvas.update_image_display(stitched_image)
 
@@ -334,279 +1339,267 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
 
     if config.SAVE_RAW_IMAGE:
         threading.Thread(target=lambda: save_image(canvas, "Images/RAW.png"), daemon=True).start()
-        
 
+    # Pass the final stitched image to the post processing function
     post_processing(gui, canvas)
 
+
 def post_processing(gui, canvas):
-    t1 = time.time()
+    """
+    Handles post-processing of the image on the canvas. This involves scaling the image, applying
+    filters, detecting monolayers, and highlighting them on the canvas. Results are displayed and saved.
+
+    Args:
+        gui: The GUI object to update the interface and display results.
+        canvas: The image canvas to process and extract monolayers from.
+    """
+    t1 = time.time()  # Start timer for performance tracking
     gui.root.after(0, lambda: gui.update_progress(95, "Image processing..."))
     print("Post processing...")
 
     monolayers = []
 
+    # Load post-processing configurations
     contrast = config.POST_PROCESSING_CONTRAST
     threshold = config.POST_PROCESSING_THRESHOLD
     blur = config.POST_PROCESSING_BLUR
 
-    # Create a downsampled version of the canvas for post-processing
+    # Downscale the image for faster post-processing
     post_image = scale_down_canvas(canvas, config.POST_PROCESSING_DOWNSCALE)
 
-    # post_image = cv2.blur(post_image, (5, 5)) # Optional pre grayscale blur (downscaling already blurs)
-    # Our image is in BGRA format so to convert it to greyscale with a bias for red and a bias against green and blue, we use the following formula:
-    red, green, blue  = [(c/127)-1 for c in config.MONOLAYER_COLOR]
+    # Convert the image to greyscale with a bias for red, green, and blue based on configuration
+    red, green, blue = [(c / 127) - 1 for c in config.MONOLAYER_COLOR]
     print(f"{red}, {green}, {blue}")
 
+    # Create a weighted grayscale image
     post_image = red * post_image[:, :, 2] + green * post_image[:, :, 1] + blue * post_image[:, :, 0]
-    # Normalize the image to 0-255
-    post_image = np.clip(post_image, 0, 255)
-    # Convert to uint8
-    post_image = post_image.astype(np.uint8)
-    # Apply a light Gaussian blur to reduce pixel noise and prevent against accidental monolayer splitting
+
+    # Normalize the grayscale image to 0-255 range
+    post_image = np.clip(post_image, 0, 255).astype(np.uint8)
+
+    # Apply a Gaussian blur to reduce noise
     post_image = cv2.blur(post_image, (blur, blur))
-    
-    # Increase contrast
+
+    # Increase image contrast
     post_image = cv2.convertScaleAbs(post_image, alpha=contrast, beta=0)
 
-    # Remove pixels below a the threshold value
+    # Apply a threshold to remove pixel values below the threshold
     _, post_image = cv2.threshold(post_image, threshold, 255, cv2.THRESH_BINARY)
 
-    t2 = time.time()
+    t2 = time.time()  # End timer
     print(f"Time taken: {t2 - t1:.2f} seconds")
 
-
-    # print("Saving post processed image...")
-    # save_image(post_image, "Images/processed.png")
-    # print("Saved!")
-
-    # Create a copy of the canvas for contour drawing (this is slow but necessary if canvas is to be used again in future)
+    # Create a copy of the original canvas for drawing contours
     contour_image = canvas.copy()
 
+    # Update progress and detect contours (monolayers)
     print("Locating Monolayers...")
     gui.root.after(0, lambda: gui.update_progress(97, "Locating Monolayers..."))
-
-    # Find contours on the downscaled post-processed image
     scaled_contours, _ = cv2.findContours(post_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Scale up the contours to match the original resolution
+    # Scale contours back to the original image size
     contours = [contour * config.POST_PROCESSING_DOWNSCALE for contour in scaled_contours]
 
     larger_contours = []
 
     for i, contour in enumerate(contours):
-        # Save the bounding box of the monolayer
+        # Get the bounding box around each monolayer
         x, y, w, h = cv2.boundingRect(contour)
 
-        # Add padding to the bounding box
+        # Add padding to the bounding box and crop the monolayer from the canvas
         x_start = max(x - config.MONOLAYER_CROP_PADDING, 0)
         y_start = max(y - config.MONOLAYER_CROP_PADDING, 0)
         x_end = min(x + w + config.MONOLAYER_CROP_PADDING, canvas.shape[1])
-        y_end = min(y + h + config.MONOLAYER_CROP_PADDING, canvas.shape[0]) 
+        y_end = min(y + h + config.MONOLAYER_CROP_PADDING, canvas.shape[0])
 
-        # Crop the monolayer from the original canvas
+        # Crop the monolayer image
         image_section = canvas[y_start:y_end, x_start:x_end]
 
-        # Create a Monolayer object and add it to the list
-        rotation = view_num_to_rotation_numpy[config.VIEW_ROTATION % 4]
+        # Rotate the cropped section if required
+        rotation = view_num_to_rotation_cv[config.VIEW_ROTATION % 4]
         if rotation is not None:
             image_section = cv2.rotate(image_section, rotation)
+
+        # Create a Monolayer object and store it
         monolayers.append(Monolayer(contour, image_section, (x_start, y_start)))
 
+        # Draw a marker at the center of the monolayer
         cx, cy = monolayers[-1].position
-        
-        # Mark center of the monolayer
         contour_image = cv2.circle(contour_image, (cx, cy), config.MONOLAYER_DOT_SIZE, color=(0, 0, 0, 255), thickness=-1)
 
+        # Scale up the contours if necessary and draw them on the canvas
         if config.MONOLAYER_OUTLINE_SCALE != 1:
             larger_contour = []
-
             for point in contour:
                 x, y = point[0]
-                # Compute vector from centroid to point
                 dx = x - cx
                 dy = y - cy
-                # Scale the vector
                 new_x = cx + dx * config.MONOLAYER_OUTLINE_SCALE
                 new_y = cy + dy * config.MONOLAYER_OUTLINE_SCALE
-                # Append the new point, rounded to integer pixel values
                 larger_contour.append([int(new_x), int(new_y)])
             larger_contour = np.array(larger_contour, dtype=np.int32).reshape(-1, 1, 2)
             larger_contours.append(larger_contour)
-            
-            # Draw contours on the original resolution image
             cv2.drawContours(contour_image, larger_contours, -1, (255, 255, 0, 255), config.MONOLAYER_OUTLINE_THICKNESS)
         else:
             cv2.drawContours(contour_image, contours, -1, (255, 255, 0, 255), config.MONOLAYER_OUTLINE_THICKNESS)
-    
-    # Display the final image with contours
+
+    # Save and display the final processed image with highlighted monolayers
     gui.root.after(0, lambda: gui.update_progress(97, "Saving final images..."))
     print("Saving image with monolayers...")
     save_image(contour_image, "Images/highlighted_monolayers.png", 1)
     print("Saved!")
 
-    # Sort monolayers by area removing any which are too small
+    # Filter out small monolayers and sort the remaining by area
     monolayers = [layer for layer in monolayers if layer.area_um >= config.POST_PROCESSING_DOWNSCALE]
-    monolayers.sort(key=operator.attrgetter('area'))
-    monolayers.reverse()
+    monolayers.sort(key=operator.attrgetter('area'), reverse=True)
 
-    gui.root.after(0, lambda: gui.display_results_tab(Image.fromarray(cv2.cvtColor(scale_down_canvas(contour_image, config.RESULTS_IMAGE_DOWNSCALE), cv2.COLOR_BGRA2RGBA)), monolayers))
+    # Display the results in the GUI
+    gui.root.after(0, lambda: gui.display_results_tab(
+        Image.fromarray(cv2.cvtColor(scale_down_canvas(contour_image, config.RESULTS_IMAGE_DOWNSCALE), cv2.COLOR_BGRA2RGBA)), monolayers))
 
-
+    # Print detailed information about each monolayer
     for i, layer in enumerate(monolayers):
         print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}      Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
-        cv2.imwrite(f"Monolayers/{i+1}.png", layer.image)
+        # cv2.imwrite(f"Images/Monolayers/{i+1}.png", layer.image)
 
-
+    # Final progress update
     gui.root.after(0, lambda: gui.update_progress(100, "Scan Complete!"))
-    # while True:
-    #     try:
-    #         n = int(input("Go To Monolayer: "))-1
-    #     except ValueError:
-    #         print("Please enter a valid monolayer number")
-    #     if n in range(0, len(monolayers)):
-    #         move(mcm301obj, image_to_stage(monolayers[n].position, start))
-    #     else:
-    #         print("Please enter a valid monolayer number")
+
 
 
 def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     """
-    Runs the main scanning algorithm to capture and process images across a defined area.
+    Runs the main scanning algorithm, capturing images across a defined area for stitching.
     
     Args:
-        mcm301obj (MCM301): The stage controller object.
+        mcm301obj (MCM301): The stage controller object for controlling movement.
         image_queue (queue.Queue): Queue containing images captured by the camera.
         frame_queue (queue.Queue): Queue to store images along with their positions for stitching.
         start (tuple): Starting coordinates (x, y) in nanometers.
         end (tuple): Ending coordinates (x, y) in nanometers.
     """
-
-    num_images = math.ceil((end[0]-start[0])/config.DIST+1)*math.ceil((end[1]-start[1])/config.DIST+1)
-    print(num_images)
-    config.current_image = 0
-
-    focuses = []
     
+    # Calculate the total number of images to capture based on the scanning area and step size
+    num_images = math.ceil((end[0] - start[0]) / config.DIST + 1) * math.ceil((end[1] - start[1]) / config.DIST + 1)
+    print(f"Total images to capture: {num_images}")
+
+    config.current_image = 0 
+    focuses = [] # List to store focus values for autofocusq
+
     def capture_and_store_frame(x, y, focuses):
         """
-        Captures a frame from the image queue and stores it with its position in the frame queue.
+        Captures a frame from the image queue and stores it in the frame queue with its position.
         
         Args:
             x (int): The x-coordinate in nanometers.
             y (int): The y-coordinate in nanometers.
+            focuses (list): A list to track focus values.
         """
-        time.sleep(0.5*config.CAMERA_PROPERTIES["exposure"]/1e6)
+        # Simulate delay based on camera exposure time
+        time.sleep(0.5 * config.CAMERA_PROPERTIES["exposure"] / 1e6)
 
-
+        # Retrieve the latest frame from the image queue
         frame = image_queue.get(timeout=1000)
 
+        # Autofocus functionality, if enabled
         if config.AUTOFOCUS:
+            # Convert frame to grayscale and calculate intensity contrast
             frame_array = np.array(frame.convert('L'))
             intensity_lower = np.percentile(frame_array, config.AUTOFOCUS_REQUIRED_SUBSTANCE_PERCENT)
-            intensity_upper = np.percentile(frame_array, 100-config.AUTOFOCUS_REQUIRED_SUBSTANCE_PERCENT)
+            intensity_upper = np.percentile(frame_array, 100 - config.AUTOFOCUS_REQUIRED_SUBSTANCE_PERCENT)
             intensity_range = intensity_upper - intensity_lower
 
+            # Perform focus check based on contrast
             if intensity_range > config.AUTOFOCUS_REQUIRED_CONTRAST:
                 focuses.append(get_focus(frame))
 
+                # Trigger autofocus if focus value drops below threshold
                 if focuses[-1] < 1 and len(focuses) > config.FOCUS_FRAME_AVG:
                     auto_focus(mcm301obj, image_queue)
                     focuses.clear()
                     frame = image_queue.get(timeout=1000)
                     focuses.append(get_focus(frame))
-                elif len(focuses) > config.FOCUS_FRAME_AVG*2 and np.average(focuses[0:-config.FOCUS_FRAME_AVG]) > np.average(focuses[-config.FOCUS_FRAME_AVG:-1])*config.FOCUS_BUFFER:
+
+                # Check for degrading focus and refocus if needed
+                elif len(focuses) > config.FOCUS_FRAME_AVG * 2 and np.average(focuses[0:-config.FOCUS_FRAME_AVG]) > np.average(focuses[-config.FOCUS_FRAME_AVG:-1]) * config.FOCUS_BUFFER:
                     auto_focus(mcm301obj, image_queue)
                     focuses.clear()
                     frame = image_queue.get(timeout=1000)
                     focuses.append(get_focus(frame))
-            elif len(focuses) > config.FOCUS_FRAME_AVG*2 and np.average(focuses[0:-config.FOCUS_FRAME_AVG]) > np.average(focuses[-config.FOCUS_FRAME_AVG:-1])*config.FOCUS_BUFFER:
+
+            # If contrast is too low, it may be waiting for an object to focus on
+            elif len(focuses) > config.FOCUS_FRAME_AVG * 2 and np.average(focuses[0:-config.FOCUS_FRAME_AVG]) > np.average(focuses[-config.FOCUS_FRAME_AVG:-1]) * config.FOCUS_BUFFER:
                 print("Waiting for object to focus on")
 
+        # Store the captured frame and its position in the frame queue
         frame_queue.put((frame, (x, y)))
-        config.current_image += 1
-        gui.root.after(0, lambda: gui.update_progress(int(90*config.current_image/num_images), f"Capturing Image {config.current_image} of {num_images}"))
+        config.current_image += 1 
 
+        # Update progress bar
+        gui.root.after(0, lambda: gui.update_progress(int(90 * config.current_image / num_images), f"Capturing Image {config.current_image} of {num_images}"))
 
     def scan_line(x, y, direction, focuses):
         """
-        Scans a single line in the current direction, capturing images along the way.
+        Scans a single line in the specified direction, capturing images along the way.
         
         Args:
             x (int): The current x-coordinate in nanometers.
             y (int): The current y-coordinate in nanometers.
-            direction (int): The scanning direction (1 for forward, -1 for backward).
+            direction (int): The direction of the scan (1 for forward, -1 for backward).
             
         Returns:
             int: The updated x-coordinate after completing the line scan.
         """
+        # Continue capturing images while moving in the given direction
         while (direction == 1 and x < end[0]) or (direction == -1 and x > start[0]):
-            capture_and_store_frame(x, y, focuses)
-            x += config.DIST * direction
-            move(mcm301obj, (x, y))
+            capture_and_store_frame(x, y, focuses)  # Capture an image at the current position
+            x += config.DIST * direction 
+            move(mcm301obj, (x, y))  # Move the stage to the next point
         
-        # Capture final frame at the line end
+        # Capture the final frame at the end of the line
         capture_and_store_frame(x, y, focuses)
         
         return x
-    
-    # Start scanning
+
+    # Begin scanning process
     move(mcm301obj, start)
-    x, y = start
+    x, y = start 
     direction = 1
 
+    # Disable autofocus button during scanning
     gui.root.after(0, lambda: gui.auto_focus_button.config(state='disabled'))
+
+    # Perform autofocus before starting if enabled
     if config.AUTOFOCUS:
         gui.root.after(0, lambda: gui.update_progress(1, "Focusing..."))
-        auto_focus(mcm301obj, image_queue, [config.FOCUS_RANGE*2, config.FOCUS_STEPS*2])
-    
+        auto_focus(mcm301obj, image_queue, [config.FOCUS_RANGE * 2, config.FOCUS_STEPS * 2])
+
+    # Scan in lines until the entire area is covered
     while y < end[1]:
-        x = scan_line(x, y, direction, focuses)
-        
-        # Move to the next line
+        x = scan_line(x, y, direction, focuses) 
         y += config.DIST
         move(mcm301obj, (x, y))
-        
-        # Reverse direction for the next line scan
         direction *= -1
+
+    # Perform the final scan to complete the area
     scan_line(x, y, direction, focuses)
 
     print("\nImage capture complete!")
     print("Waiting for image processing to complete...")
+
+    # Update GUI after image capture and re-enable autofocus button
     gui.root.after(0, lambda: gui.update_progress(92, "Image stitching..."))
     gui.root.after(0, lambda: gui.auto_focus_button.config(state='normal'))
+
+    # Signal the frame queue that scanning is complete
     frame_queue.put(None)
 
-
-def auto_focus(mcm301obj, image_queue, params=None):
-    z = get_pos(mcm301obj, (6,))[0]
-    lens_ajustment_factor = 20/config.CAMERA_PROPERTIES['lens']
-    if params:
-        z_range = np.linspace(z-params[0], z+params[0], params[1]) 
-    else:
-        z_range = np.linspace(z-int(config.FOCUS_RANGE*lens_ajustment_factor), z+int(config.FOCUS_RANGE*lens_ajustment_factor), config.FOCUS_STEPS)
-    best_z = z
-    best_focus = 0
-    for z_i in z_range:
-        move(mcm301obj, [int(z_i)], (6,))
-        time.sleep(0.5*config.CAMERA_PROPERTIES['exposure']/1e6)
-        focus = get_focus(image_queue.get(1000))
-        if focus > best_focus:
-            best_focus = focus
-            best_z = int(z_i)
-    move(mcm301obj, [best_z], (6,))
-
-def initial_auto_focus(gui, mcm301obj, image_queue, n = 5):
-    gui.root.after(0, lambda: gui.auto_focus_button.config(state='disabled'))
-    d = 1e7/config.CAMERA_PROPERTIES['lens']
-    while d > 10e4/config.CAMERA_PROPERTIES['lens']:
-        auto_focus(mcm301obj, image_queue, params=[int(d), n])
-        d = d/(n-1)
-    gui.root.after(0, lambda: gui.auto_focus_button.config(state='normal'))
 
 def get_focus(image):
     """
     Calculates the focus measure of an image using the Power Spectrum Slope method.
-    Optimized for performance.
+    This involves taking the 2D Fourier Transform of the image and computing the slope of the power spectrum.
+    Higher frequency components correspond to sharper images so the slope will shift depending on focus quality.
 
     Parameters:
         image (PIL.Image): Input PIL image.
@@ -664,30 +1657,110 @@ def get_focus(image):
     return focus_value
 
 
+def auto_focus(mcm301obj, image_queue, params=None):
+    """
+    Automatically adjusts the focus by moving the stage along the z-axis and measuring the focus quality at each step.
+    
+    Args:
+        mcm301obj (MCM301): The stage controller object for controlling movement.
+        image_queue (queue.Queue): Queue containing images to evaluate focus.
+        params (list, optional): Optional parameters for custom focus range and steps. If None, uses default configuration.
+    """
+    # Get the current position of the z-axis (focus axis)
+    z = get_pos(mcm301obj, (6,))[0]
 
+    # Adjust the movment distance based on the lens used (large magnification requires smaller steps for focus)
+    lens_adjustment_factor = 20 / config.CAMERA_PROPERTIES['lens']
+
+    # Set the range of z-axis positions to test for focus, using custom paramaters if provided
+    if params:
+        z_range = np.linspace(z - params[0], z + params[0], params[1])
+    else:
+        z_range = np.linspace(z - int(config.FOCUS_RANGE * lens_adjustment_factor), 
+                              z + int(config.FOCUS_RANGE * lens_adjustment_factor), 
+                              config.FOCUS_STEPS)
+    
+    best_z = z  # Store the best z-position for focus
+    best_focus = 0  # Store the highest focus value found
+
+    # Loop through each z-position in the range and evaluate the focus
+    for z_i in z_range:
+        move(mcm301obj, [int(z_i)], (6,)) 
+        time.sleep(0.5 * config.CAMERA_PROPERTIES['exposure'] / 1e6)  # Wait for the image to stabilize
+        
+        # Get the focus value for the current image
+        focus = get_focus(image_queue.get(1000))
+
+        # If the current focus is better than the previous best, update the best focus and position
+        if focus > best_focus:
+            best_focus = focus
+            best_z = int(z_i)
+
+    # Move the stage to the best focus position found
+    move(mcm301obj, [best_z], (6,))
+
+
+def initial_auto_focus(gui, mcm301obj, image_queue, n=5):
+    """
+    Performs a wider initial autofocus procedure.
+    
+    Args:
+        gui: The GUI object to update the interface and control button states.
+        mcm301obj (MCM301): The stage controller object for controlling movement.
+        image_queue (queue.Queue): Queue containing images to evaluate focus.
+        n (int): The number of steps to use for each autofocus iteration (default is 5).
+    """
+    # Disable the autofocus button in the GUI
+    gui.root.after(0, lambda: gui.auto_focus_button.config(state='disabled'))
+
+    # Set the initial large range for focus adjustment, scaled by the camera's lens property
+    d = 1e7 / config.CAMERA_PROPERTIES['lens']
+
+    # Continue refining focus until the range is reduced to a certain threshold
+    while d > 10e4 / config.CAMERA_PROPERTIES['lens']:
+        # Perform autofocus with the current range and steps
+        auto_focus(mcm301obj, image_queue, params=[int(d), n])
+
+        # Reduce the focus range for the next iteration
+        d = d / (n - 1)
+
+    # Re-enable the autofocus button
+    gui.root.after(0, lambda: gui.auto_focus_button.config(state='normal'))
 
 
 
 class Monolayer:
+    """
+    A class that represents a monolayer region, characterized by its contour and image.
+    The class also computes various quality metrics.
+    
+    Args:
+        contour (np.ndarray): The contour of the monolayer.
+        image (np.ndarray): The image data of the monolayer.
+        pos (tuple): The top-left position (x, y) of the monolayer in the global image.
+    """
+    
     def __init__(self, contour, image, pos):
         self.image = image
         self.global_contour = contour
-
-        x_start, y_start = pos
-
+        x_start, y_start = pos  # The starting position of the contour in the global image
+        
+        # Calculate the centroid (cx, cy) of the monolayer from the contour
         M = cv2.moments(contour)
-        if M['m00'] != 0:
-            self.cx = int(M['m10']/M['m00'])
-            self.cy = int(M['m01']/M['m00'])
+        if M['m00'] != 0:  # Avoid division by zero
+            self.cx = int(M['m10'] / M['m00'])
+            self.cy = int(M['m01'] / M['m00'])
         else:
-            # Edge case: Area is zero; calculate centroid from the bounding box
+            # If the area is zero, use the bounding box for centroid calculation
             x, y, w, h = cv2.boundingRect(contour)
-            self.cx = x + w // 2 
-            self.cy = y + h // 2 
+            self.cx = x + w // 2
+            self.cy = y + h // 2
+            
+        # Compute area and position-related properties
         self.area_px = cv2.contourArea(contour)
         self.position = (self.cx, self.cy)
-        self.area = self.area_px * (config.NM_PER_PX**2)
-        self.area_um = self.area / 1e6
+        self.area = self.area_px * (config.NM_PER_PX**2)  # Convert area to square nanometers
+        self.area_um = self.area / 1e6  # Convert area to square micrometers
 
         self.contour = contour - np.array([[x_start, y_start]])
 
@@ -2107,42 +3180,62 @@ class GUI:
         logging.info("GUI closed successfully.")
 
 
-
-
-
 def run_sequence(gui, mcm301obj, image_queue, frame_queue, start, end, stitched_view_canvas):
-
+    """
+    Executes the main scanning sequence, capturing images and stitching them together.
+    
+    Args:
+        gui: The GUI object for controlling the interface.
+        mcm301obj (MCM301): The stage controller object for controlling movement.
+        image_queue (queue.Queue): Queue containing captured images from the camera.
+        frame_queue (queue.Queue): Queue to store images and their positions for stitching.
+        start (tuple): Starting coordinates (x, y) in nanometers.
+        end (tuple): Ending coordinates (x, y) in nanometers.
+        stitched_view_canvas: The canvas where the stitched result will be displayed.
+    """
+    # Ensure the start and end points are properly ordered
     x_1, y_1 = start
     x_2, y_2 = end
-    start = [min(x_1, x_2), min(y_1, y_2)]
-    end = [max(x_1, x_2), max(y_1, y_2)]
+    start = [min(x_1, x_2), min(y_1, y_2)]  # Adjust to get the top-left corner
+    end = [max(x_1, x_2), max(y_1, y_2)]  # Adjust to get the bottom-right corner
     
-    # Disable buttons in the main tab
-    gui.root.after(0, lambda: gui.toggle_buttons(gui.main_frame_controls ,'disabled', exclude=[gui.cat_button]))
-    gui.root.after(0, lambda: gui.display_results_tab(Image.open("assets/placeholder.webp")))
-    gui.image_references = []
+    # Disable buttons in the main tab except a specified button
+    gui.root.after(0, lambda: gui.toggle_buttons(gui.main_frame_controls, 'disabled', exclude=[gui.cat_button]))
+    gui.root.after(0, lambda: gui.display_results_tab(Image.open("assets/placeholder.webp")))  # Display a placeholder image
+    gui.image_references = []  # Clear image references in the GUI
 
-    # Start stitching thread
+    # Start a thread to handle stitching images in the background
     stitching_thread = threading.Thread(target=stitch_and_display_images, args=(gui, frame_queue, start, end, stitched_view_canvas))
     stitching_thread.start()
 
-    # Start algorithm thread
+    # Start the scanning algorithm in a separate thread
     alg_thread = threading.Thread(target=alg, args=(gui, mcm301obj, image_queue, frame_queue, start, end))
     alg_thread.start()
 
-    # Define a function to check if stitching is complete
+    # Define a function to re-enable buttons once stitching is complete
     def check_stitching_complete():
         stitching_thread.join()  # Wait for stitching to finish
-        gui.root.after(0, lambda: gui.toggle_buttons(gui.main_frame_controls ,'normal'))  # Enable buttons again
+        gui.root.after(0, lambda: gui.toggle_buttons(gui.main_frame_controls, 'normal'))  # Re-enable buttons after completion
 
-    # Start a separate thread to re-enable buttons once stitching is done
+    # Start a daemon thread to check when stitching is complete and re-enable buttons
     threading.Thread(target=check_stitching_complete, daemon=True).start()
 
+
 def cleanup(signum=None, frame=None):
+    """
+    Cleans up resources, such as the camera, when a signal is received or the program exits.
+    
+    Args:
+        signum (int, optional): The signal number (e.g., SIGTERM, SIGINT).
+        frame (optional): The current stack frame.
+    """
     logging.info("Signal received, cleaning up...")
+
     try:
+        # If the GUI is running, close it properly
         if 'GUI_main' in globals() and GUI_main is not None:
             GUI_main.on_closing()
+        # If the camera is active and not disposed, disarm and dispose it safely
         elif 'camera' in globals() and camera is not None:
             if not getattr(camera, 'disposed', False):
                 try:
@@ -2156,6 +3249,8 @@ def cleanup(signum=None, frame=None):
                 logging.info("Camera already disposed.")
     except Exception as e:
         logging.exception(f"Exception during cleanup: {e}")
+
+    # Exit the program safely
     sys.exit(0)
 
 
@@ -2163,16 +3258,6 @@ if __name__ == "__main__":
     # Set up signal handlers for unexpected termination
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
-
-    # Configure logging
-    logging.basicConfig(
-        level=logging.DEBUG,  # Set to DEBUG to capture all types of logs
-        format='%(asctime)s [%(levelname)s] %(threadName)s: %(message)s',
-        handlers=[
-            logging.StreamHandler(),  # Log to console
-            logging.FileHandler('app_debug.log', mode='w')  # Log to a file
-        ]
-    )
 
     try:
         logging.info("Initializing TLCameraSDK...")
@@ -2201,21 +3286,6 @@ if __name__ == "__main__":
             logging.debug(f"Camera gain set to {camera.gain}")
             logging.debug(f"Camera exposure time set to {camera.exposure_time_us} us")
 
-            # # **Set Binning Here**
-            # logging.info("Configuring camera binning...")
-            # try:
-            #     binx, biny = config.CAMERA_BINNING
-            #     camera.binx = binx
-            #     camera.biny = biny
-            #     logging.debug(f"Camera binning set to binx={camera.binx}, biny={camera.biny}")
-            # except (ValueError, TypeError) as e:
-            #     logging.error("CAMERA_BINNING must be a tuple or list with two integer values (binx, biny).")
-            #     sys.exit(1)
-            # except TLCameraError as e:
-            #     logging.exception("Failed to set camera binning:")
-            #     camera.dispose()
-            #     sys.exit(1)
-
             # Arm the camera
             try:
                 logging.info("Arming the camera...")
@@ -2232,7 +3302,6 @@ if __name__ == "__main__":
                 camera.dispose()
                 sys.exit(1)
 
-            # Proceed with your application logic
             try:
                 # Update config parameters
                 config.CAMERA_PROPERTIES["px_size"] = (

@@ -26,7 +26,7 @@ import math
 
 from MCM301_COMMAND_LIB import *
 
-from custom_definitions import *
+from ARCHIVED_custom_definitions import *
 
 confirmation_bits = (2147484928, 2147484930, 2147483904)
 camera_dims = [2448, 2048] # This is updated dynamically later
