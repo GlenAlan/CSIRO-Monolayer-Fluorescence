@@ -245,29 +245,34 @@ We showed Matt the progress of our project, highlighting all the new features we
 - [X] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
 - [X] Autofocus adapt to zoom
 - [X] Disable autofocus button when focusing
-- [ ] Allow adjustment of other config parameters in extra window
+- [X] Allow adjustment of other config parameters in extra window
 ~~- [ ] Add a threshold slider for monolayer detection~~
-- [ ] Allow zoom on the results image (and click to go to location)
-- [ ] Add more instructions to the GUI and redo layout as needed
-- [ ] Check all relavent buttons get disabled during potentially colliding processes
-- [ ] Refine quality parameters
+- [X] Allow zoom on the results image (and click to go to location)
+- [X] Add more instructions to the GUI and redo layout as needed
 - [X] Add an intuitive click to move on the live view image
-- [ ] Tidy up our directory and to make it neater
-- [ ] Add a scale to the results (&live?) image
-- [ ] List the connected devices in the calibration tab (done on backend, needs GUI)
-- [ ] Add a save and load for settings etc.
+- [X] Tidy up our directory and to make it neater
+~~- [ ] List the connected devices in the calibration tab (done on backend, needs GUI)~~
 - [X] Add automatic focus adjustment (every n frames)
+~~- [ ] Select Camera~~
+- [X] Rescale stichable image
+- [X] Make larger ML outline
+  
 - [ ] Give the window a logo and package it into a .exe if possible
-- [ ] Select Camera
-- [ ] Make larger ML outline
-- [ ] Rescale stichable image
+- [ ] Add advanced parameters
+- [ ] Refine quality parameters
+- [ ] Add a scale to the results (&live?) image
+
+- [ ] Add a save and load for settings etc.
+- [ ] Check all relavent buttons get disabled during potentially colliding processes
 
 
-Things to fix:  
+Things to fix:  (DONE 4/10/24)
 Still Jumping to random other parts  
 Still occasionally doesnt load camera  
 The corners need to be labeld so that it starts on a focusable part  
 FASTER!  
+
+
 
 
 Field Test:  

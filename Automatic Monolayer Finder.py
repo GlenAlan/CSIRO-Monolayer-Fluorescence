@@ -2465,7 +2465,7 @@ class GUI:
                 text="Redo output with new config",
                 command=lambda: threading.Thread(
                     target=post_processing,
-                    args=(self, config.canvas, config.start_pos),
+                    args=(self, config.canvas),
                     daemon=True
                 ).start(),
                 bg=config.BUTTON_COLOR,
