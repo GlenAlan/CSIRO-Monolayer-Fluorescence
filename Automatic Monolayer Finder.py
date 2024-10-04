@@ -263,33 +263,96 @@ def rgb2hex(color):
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
 
 
-def get_pos(mcm301obj, stages=(4, 5, 6)):
+def convert_encoder_to_nm_with_retries(mcm301obj, slot, encoder_count, nm, retries=10, delay=0.01):
+    """ Convert raw encoder to nm with retries.
+
+    Args:
+        slot (int): Target slot (4,5,6).
+        encoder_count (int): Encoder count.
+        nm (list): List to store the converted nm value.
+        retries (int): Number of retry attempts.
+        delay (float): Delay between retries in seconds.
+
+    Returns:
+        int: 0 on success; negative number on failure.
     """
-    Retrieves the current position of the specified stages.
+    for attempt in range(retries):
+        ret = mcm301obj.convert_encoder_to_nm(slot, encoder_count, nm)
+        if ret == 0:
+            return 0  # Success
+        else:
+            logging.warning(f"convert_encoder_to_nm failed on attempt {attempt + 1}/{retries} for slot {slot}. Retrying...")
+            time.sleep(delay)
+    logging.error(f"convert_encoder_to_nm failed after {retries} attempts for slot {slot}.")
+    return ret  # Return the last error code
+
+
+def convert_nm_to_encoder_with_retries(mcm301obj, slot, nm_position, encoder_count, retries=10, delay=0.01):
+    """ Convert nm to raw encoder count with retries.
+
+    Args:
+        slot (int): Target slot (4,5,6).
+        nm_position (float): Position in nanometers.
+        encoder_count (list): List to store the encoder count.
+        retries (int): Number of retry attempts.
+        delay (float): Delay between retries in seconds.
+
+    Returns:
+        int: 0 on success; negative number on failure.
+    """
+    for attempt in range(retries):
+        ret = mcm301obj.convert_nm_to_encoder(slot, nm_position, encoder_count)
+        if ret == 0:
+            return 0  # Success
+        else:
+            logging.warning(f"convert_nm_to_encoder failed on attempt {attempt + 1}/{retries} for slot {slot}. Retrying...")
+            time.sleep(delay)
+    logging.error(f"convert_nm_to_encoder failed after {retries} attempts for slot {slot}.")
+    return ret  # Return the last error code
+
+
+
+
+def get_pos(mcm301obj, stages=(4, 5, 6), retries=10, delay=0.01):
+    """
+    Retrieves the current position of the specified stages with retries.
 
     Args:
         mcm301obj (MCM301): The MCM301 object that controls the stage.
-        stages (list): A list of stage numbers for which the positions are to be retrieved.
-   
+        stages (tuple): A tuple of stage numbers for which the positions are to be retrieved.
+        retries (int): Number of retry attempts for each stage.
+        delay (float): Delay between retries in seconds.
+
     Returns:
-        pos (list): A list of positions corresponding to the specified stages,
-                    in nanometers.
-   
-    The function queries the current encoder value for each specified stage,
-    converts that value into nanometers, and returns the positions as a list.
+        pos (list): A list of positions corresponding to the specified stages, in nanometers.
     """
     pos = []
     for stage in stages:
-        encoder_val, nm = [0], [0]
-         # Get the current encoder value for the stage
-        mcm301obj.get_mot_status(stage, encoder_val, [0])
+        encoder_val = [0]
+        nm = [0]
 
-        # Convert the encoder value to nanometers
-        mcm301obj.convert_encoder_to_nm(stage, encoder_val[0], nm)
+        for attempt in range(retries):
+            # Get the current encoder value for the stage
+            ret_status = mcm301obj.get_mot_status(stage, encoder_val, [0])
+            if ret_status != 0:
+                logging.warning(f"Failed to get motor status for stage {stage} on attempt {attempt + 1}/{retries}. Retrying...")
+                time.sleep(delay)
+                continue
 
-        # Append the position to the list
-        pos.append(nm[0])
+            # Convert the encoder value to nanometers with retries
+            ret_convert = convert_encoder_to_nm_with_retries(mcm301obj, stage, encoder_val[0], nm)
+
+            # Successful retrieval and conversion
+            pos.append(nm[0])
+            break  # Exit the retry loop for this stage
+
+        else:
+            # If all retries failed
+            logging.error(f"Failed to get position for stage {stage} after {retries} attempts.")
+            pos.append(None)  # Append None to indicate failure
+
     return pos
+
 
 
 def move(mcm301obj, pos, stages=(4, 5), wait=True):
@@ -299,24 +362,37 @@ def move(mcm301obj, pos, stages=(4, 5), wait=True):
     Args:
         mcm301obj (MCM301): The MCM301 object that controls the stage.
         pos (tuple): The desired position to move to, given as a tuple of coordinates in nanometers.
-        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+        stages (tuple): The stages to move, represented by integers (e.g., 4 for X-axis and 5 for Y-axis).
         wait (bool): Whether to wait for the movement to complete before returning.
-   
-    The function converts the given nanometer position into encoder units that the stage controller can use,
-    then commands the stage to move to those positions. It continues to check the status of the stage
-    until it confirms that the movement is complete.
     """
     print(f"Moving to {', '.join(str(p) for p in pos)}")
 
+    if len(pos) != len(stages):
+        print("Error: Position and stages length mismatch")
+        return
+
     for i, stage in enumerate(stages):
         coord = [0]
+        position_nm = float(pos[i])
 
-        # Convert the positions from nanometers to encoder units
-        mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
-        print(f"Stage {stage}: {pos[i]} nm -> {coord[0]} encoder units")
+        # Convert the positions from nanometers to encoder units with retries
+        ret = convert_nm_to_encoder_with_retries(mcm301obj, stage, position_nm, coord)
+        if ret != 0:
+            logging.error(f"Failed to convert {position_nm} nm to encoder units for stage {stage}. Retrying...")
+            continue  # Skip moving this stage
 
-        # Move the stages to the required encoder position
-        mcm301obj.move_absolute(stage, coord[0])
+        encoder_units = coord[0]
+        if encoder_units < 0 or encoder_units > 2147483647:
+            logging.warning(f"Encoder units {encoder_units} out of bounds for stage {stage}")
+            continue  # Skip moving this stage
+
+        print(f"Stage {stage}: {position_nm} nm -> {encoder_units} encoder units")
+
+        # Move the stage to the required encoder position
+        ret_move = mcm301obj.move_absolute(stage, encoder_units)
+        if ret_move != 0:
+            logging.error(f"Failed to move stage {stage} to {encoder_units} encoder units. Error code: {ret_move}")
+            continue
 
     if wait:
         moving = True
@@ -324,11 +400,12 @@ def move(mcm301obj, pos, stages=(4, 5), wait=True):
             moving = False
             for i, stage in enumerate(stages):
                 # Wait until the stages have finished moving by checking the status bits
-                bit = [0]
-                mcm301obj.get_mot_status(stage, [0], bit)
-                if bit[0] not in config.CONFIRMATION_BITS:
+                encoder_val = [0]
+                status_bits = [0]
+                ret_status = mcm301obj.get_mot_status(stage, encoder_val, status_bits)
+
+                if status_bits[0] not in config.CONFIRMATION_BITS:
                     moving = True
-                # print(bit[0])
 
 
 def move_relative(mcm301obj, pos=[0, 0], stages=(4, 5), wait=True):
@@ -461,7 +538,12 @@ def bin_image(image_array: np.ndarray, binx: int, biny: int) -> np.ndarray:
     """
     
     # First bin using Numba for better exposure, then apply additional binning with OpenCV
-    return bin_image_cv2(bin_image_numba(image_array, binx, biny), binx, biny)
+    if binx == biny == 1:
+        return image_array
+    elif config.BINNING_EXPOSURE_INCREASE:
+        return bin_image_cv2(bin_image_numba(image_array, binx, biny), binx, biny)
+    else:
+        return bin_image_cv2(image_array, binx*2, biny*2)
 
 
 
@@ -1100,6 +1182,8 @@ class LiveViewCanvas(tk.Canvas):
         Args:
             image (PIL.Image): The image to be displayed on the canvas.
         """
+        self.current_image = image  # Save the current image for potential redrawing
+
         # Rotate the image based on the current view setting
         rotation = view_num_to_rotation[config.VIEW_ROTATION % 4]  # Determine the rotation angle based on config
         if rotation is not None:
@@ -1113,7 +1197,7 @@ class LiveViewCanvas(tk.Canvas):
         # Store the original image size before resizing
         self.original_image_width = image.width
         self.original_image_height = image.height
-        self.current_image = image  # Save the current image for potential redrawing
+        
 
         # Get the current size of the canvas
         canvas_width = self.winfo_width()
@@ -1484,7 +1568,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     print(f"Total images to capture: {num_images}")
 
     config.current_image = 0 
-    focuses = [] # List to store focus values for autofocusq
+    focuses = [] # List to store focus values for autofocus
 
     def capture_and_store_frame(x, y, focuses):
         """
@@ -1514,7 +1598,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
                 focuses.append(get_focus(frame))
 
                 # Trigger autofocus if focus value drops below threshold
-                if focuses[-1] < 1 and len(focuses) > config.FOCUS_FRAME_AVG:
+                if focuses[-1] < config.FOCUSED_THRESHOLD and len(focuses) > config.FOCUS_FRAME_AVG:
                     auto_focus(mcm301obj, image_queue)
                     focuses.clear()
                     frame = image_queue.get(timeout=1000)
@@ -1526,10 +1610,6 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
                     focuses.clear()
                     frame = image_queue.get(timeout=1000)
                     focuses.append(get_focus(frame))
-
-            # If contrast is too low, it may be waiting for an object to focus on
-            elif len(focuses) > config.FOCUS_FRAME_AVG * 2 and np.average(focuses[0:-config.FOCUS_FRAME_AVG]) > np.average(focuses[-config.FOCUS_FRAME_AVG:-1]) * config.FOCUS_BUFFER:
-                print("Waiting for object to focus on")
 
         # Store the captured frame and its position in the frame queue
         frame_queue.put((frame, (x, y)))
@@ -2678,6 +2758,26 @@ class GUI:
         )
         self.auto_expose_button.grid(row=0, column=2, rowspan=2, padx=10, pady=5, sticky='ns')
 
+        # Software Exposure Increase Checkbox
+        self.software_exposure_var = tk.BooleanVar(value=config.BINNING_EXPOSURE_INCREASE)
+        self.software_exposure_checkbox = tk.Checkbutton(
+            gain_exposure_frame,
+            text="Software Exposure Increase",
+            variable=self.software_exposure_var,
+            command=self.update_software_exposure_increase,
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR, 
+            font=config.LABEL_FONT,
+            activebackground=config.THEME_COLOR,
+            selectcolor=config.THEME_COLOR,
+        )
+        self.software_exposure_checkbox.grid(row=2, column=0, columnspan=3, padx=5, pady=5, sticky='w')
+
+    def update_software_exposure_increase(self):
+        """Update the BINNING_EXPOSURE_INCREASE configuration based on the checkbox state."""
+        config.BINNING_EXPOSURE_INCREASE = self.software_exposure_var.get()
+
+
     def open_advanced_settings(self):
         """Open a window to adjust advanced configuration settings."""
         # Create a new top-level window
@@ -2864,7 +2964,7 @@ class GUI:
                 self.lens_entry.delete(0, tk.END)
                 self.lens_entry.insert(0, str(lens_value))
             config.CAMERA_PROPERTIES['lens'] = lens_value
-            config.CAMERA_PROPERTIES["px_size"] * config.CAMERA_BINNING**2 * 1000 / config.CAMERA_PROPERTIES["lens"]
+            config.NM_PER_PX = config.CAMERA_PROPERTIES["px_size"] * config.CAMERA_BINNING**2 * 1000 / config.CAMERA_PROPERTIES["lens"]
             config.DIST = int(min(config.CAMERA_DIMS) * config.NM_PER_PX * (1 - config.IMAGE_OVERLAP))
             print(config.NM_PER_PX)
 
@@ -2912,6 +3012,9 @@ class GUI:
             self.auto_expose_button.config(state='disabled')
 
             test_gain, test_exposure = 100, 33000
+            max_gain = 350
+            config.BINNING_EXPOSURE_INCREASE = False
+            self.software_exposure_var.set(config.BINNING_EXPOSURE_INCREASE)
             target = (config.BRIGHTNESS_RANGE[0] + config.BRIGHTNESS_RANGE[1]) / 2
             self.camera.gain = int(test_gain)
             self.camera.exposure_time_us = int(test_exposure)
@@ -2923,7 +3026,7 @@ class GUI:
             while not (config.BRIGHTNESS_RANGE[0] <= average_intensity <= config.BRIGHTNESS_RANGE[1]):
                 delta_intensity = target - average_intensity
                 
-                if 1 < test_gain < 350:
+                if 1 < test_gain < max_gain:
                     if average_intensity > 250 and test_gain > 5 :
                         test_gain *= 0.5
                     elif average_intensity < 10:
@@ -2934,9 +3037,14 @@ class GUI:
                         test_gain *= min(config.BRIGHTNESS_RANGE[1]/average_intensity, 1.2)
                     else:
                         test_gain += delta_intensity/10
-                    test_gain = min(max(1, test_gain), 350)
+                    test_gain = min(max(1, test_gain), max_gain)
                 else:
-                    if average_intensity > 240:
+                    if test_exposure > 200000 and not config.BINNING_EXPOSURE_INCREASE:
+                        config.BINNING_EXPOSURE_INCREASE = True
+                        self.software_exposure_var.set(config.BINNING_EXPOSURE_INCREASE)
+                        test_gain, test_exposure = 100, 33000
+                        max_gain = 200
+                    elif average_intensity > 240:
                         test_exposure *= 0.5
                     elif average_intensity < 16:
                         test_exposure *= 1.99
@@ -2956,7 +3064,7 @@ class GUI:
                 latest_frame = np.array(self.image_acquisition_thread._image_queue.get(max(int(test_exposure/1e3), 1000)))
                 average_intensity = latest_frame.mean()
                 print(average_intensity)
-                print(f"Gain: {test_gain}, Exposure: {test_exposure}")
+                print(f"Gain: {test_gain}, Exposure: {test_exposure}, Bin Sum:{config.BINNING_EXPOSURE_INCREASE}")
 
             # Update config with final gain and exposure values
             config.CAMERA_PROPERTIES['gain'] = int(test_gain)
@@ -2967,6 +3075,8 @@ class GUI:
             self.gain_entry.insert(0, str(config.CAMERA_PROPERTIES['gain'] / 10))
             self.exposure_entry.delete(0, tk.END)
             self.exposure_entry.insert(0, str(config.CAMERA_PROPERTIES['exposure'] / 1000))
+
+            self.software_exposure_var.set(config.BINNING_EXPOSURE_INCREASE)
 
             # Re-enable the button after the process is complete
             self.auto_expose_button.config(state='normal')
