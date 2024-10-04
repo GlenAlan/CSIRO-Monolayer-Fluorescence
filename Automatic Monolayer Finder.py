@@ -150,7 +150,7 @@ def scale_down_canvas(canvas, scale_factor):
         return downsampled_canvas
 
 
-def save_image(image, filename, scale_down_factor=1):
+def save_image(image, filename, scale_down_factor=1, timestamp=True):
     """
     Saves an image to a file after optionally scaling it down.
 
@@ -164,7 +164,9 @@ def save_image(image, filename, scale_down_factor=1):
         None
     """
     file, ending = filename.split(".")
-    filename = file + datetime.now().strftime("_%Y-%m-%d_%H%M%S") + "." + ending
+    if timestamp:
+        filename = file + datetime.now().strftime("_%Y-%m-%d_%H%M%S") + "." + ending
+
     cv2.imwrite(filename, scale_down_canvas(image, scale_down_factor))
     print(format_size(os.path.getsize(filename)))
 
@@ -1388,6 +1390,7 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
     with ThreadPoolExecutor() as executor:
         futures = []
 
+        save_counter = 0
         while True:
             # Get the next item from the frame queue
             item = frame_queue.get()
@@ -1404,6 +1407,12 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
 
             stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
             stitched_view_canvas.update_image_display(stitched_image)
+
+            save_counter += 1
+            if save_counter > config.SAVE_EVERY_N_FRAMES:
+                threading.Thread(target=lambda: save_image(canvas, "Images/backup_image.png", 4, False), daemon=True).start()
+                save_counter = 0
+
 
         # Wait for all futures to complete
         for future in futures:
@@ -1593,13 +1602,14 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
             intensity_upper = np.percentile(frame_array, 100 - config.AUTOFOCUS_REQUIRED_SUBSTANCE_PERCENT)
             intensity_range = intensity_upper - intensity_lower
 
+            focuses.append(get_focus(frame))
+
             # Perform focus check based on contrast
             if intensity_range > config.AUTOFOCUS_REQUIRED_CONTRAST:
-                focuses.append(get_focus(frame))
 
                 # Trigger autofocus if focus value drops below threshold
                 if focuses[-1] < config.FOCUSED_THRESHOLD and len(focuses) > config.FOCUS_FRAME_AVG:
-                    auto_focus(mcm301obj, image_queue)
+                    auto_focus(mcm301obj, image_queue, [80*config.FOCUS_RANGE/config.CAMERA_PROPERTIES["lens"], 10])
                     focuses.clear()
                     frame = image_queue.get(timeout=1000)
                     focuses.append(get_focus(frame))
@@ -1610,6 +1620,13 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
                     focuses.clear()
                     frame = image_queue.get(timeout=1000)
                     focuses.append(get_focus(frame))
+
+            # Focus if it has been too long since the last one
+            elif len(focuses) > config.MAX_FRAMES_BETWEEN_FOCUS:
+                auto_focus(mcm301obj, image_queue)
+                focuses.clear()
+                frame = image_queue.get(timeout=1000)
+                focuses.append(get_focus(frame))
 
         # Store the captured frame and its position in the frame queue
         frame_queue.put((frame, (x, y)))
@@ -1652,7 +1669,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     # Perform autofocus before starting if enabled
     if config.AUTOFOCUS:
         gui.root.after(0, lambda: gui.update_progress(1, "Focusing..."))
-        auto_focus(mcm301obj, image_queue, [config.FOCUS_RANGE * 2, config.FOCUS_STEPS * 2])
+        auto_focus(mcm301obj, image_queue, [config.FOCUS_RANGE * 4, config.FOCUS_STEPS * 4])
 
     # Scan in lines until the entire area is covered
     while y < end[1]:
@@ -1979,7 +1996,8 @@ class GUI:
     def __init__(self, root, camera):
         # Initialize the main window
         self.root = root
-        self.root.title('Camera Control Interface')
+        self.root.title('Automatic Monolayer Finder')
+        self.root.iconbitmap("assets/icon.ico")
         self.root.configure(bg=config.THEME_COLOR)
 
 
@@ -2239,13 +2257,11 @@ class GUI:
             "main": ttk.Frame(notebook, style='TFrame'),
             "calibration": ttk.Frame(notebook, style='TFrame'),
             "results": ttk.Frame(notebook, style='TFrame'),
-            "plots": ttk.Frame(notebook, style='TFrame')
         }
 
         notebook.add(self.tabs["main"], text="Main Control")
         notebook.add(self.tabs["calibration"], text="Calibration")
         notebook.add(self.tabs["results"], text="Results & Analysis")
-        notebook.add(self.tabs["plots"], text="Plots")
 
         # Apply styles
         style = ttk.Style()
@@ -2300,10 +2316,6 @@ class GUI:
         # Results Tab Layout
         self.results_frame_image = tk.Canvas(self.tabs["results"], bg=config.THEME_COLOR, highlightthickness=0)
         self.results_frame_image.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # Results Tab Layout
-        self.plots_frame = tk.Canvas(self.tabs["plots"], bg=config.THEME_COLOR, highlightthickness=0)
-        self.plots_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Load and display the image
         self.display_results_tab(Image.open("assets/placeholder.webp"))
@@ -3128,12 +3140,73 @@ class GUI:
 
 
     def create_rotation_wheel(self):
-        """Create a 360-degree rotation wheel in the calibration tab."""
+        """Create rotation wheels in the calibration tab."""
         wheel_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
         wheel_frame.grid(row=2, column=0, columnspan=2, padx=20, pady=20, sticky='nsew')
 
-        # Use grid instead of pack for the canvas
-        self.canvas = tk.Canvas(wheel_frame, width=100, height=100, bg=config.THEME_COLOR, highlightthickness=0)
+        # Configure grid for wheel_frame
+        wheel_frame.columnconfigure(0, weight=1)
+        wheel_frame.columnconfigure(1, weight=1)
+
+        # Left wheel frame for view rotation
+        left_wheel_frame = tk.Frame(wheel_frame, bg=config.THEME_COLOR)
+        left_wheel_frame.grid(row=0, column=0, padx=10, pady=10)
+
+        # Right wheel frame for camera rotation
+        right_wheel_frame = tk.Frame(wheel_frame, bg=config.THEME_COLOR)
+        right_wheel_frame.grid(row=0, column=1, padx=10, pady=10)
+
+        # --- View Rotation Wheel (Left Wheel) ---
+        self.view_canvas = tk.Canvas(left_wheel_frame, width=100, height=100, bg=config.THEME_COLOR, highlightthickness=0)
+        self.view_canvas.grid(row=0, column=0, padx=10, pady=10)
+
+        self.view_wheel_radius = 40
+        self.view_wheel_center_x = 50
+        self.view_wheel_center_y = 50
+
+        self.view_wheel_image = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
+        self.view_wheel_draw = ImageDraw.Draw(self.view_wheel_image)
+        self.draw_anti_aliased_wheel(self.view_wheel_draw, self.view_wheel_center_x, self.view_wheel_center_y, self.view_wheel_radius)
+
+        self.view_wheel_tk_image = ImageTk.PhotoImage(self.view_wheel_image)
+        self.view_canvas_image = self.view_canvas.create_image(0, 0, anchor=tk.NW, image=self.view_wheel_tk_image)
+        self.view_pointer_line = self.view_canvas.create_line(
+            self.view_wheel_center_x,
+            self.view_wheel_center_y,
+            self.view_wheel_center_x,
+            self.view_wheel_center_y - self.view_wheel_radius,
+            width=2,
+            fill=config.HIGHLIGHT_COLOR
+        )
+        self.view_canvas.bind("<B1-Motion>", self.update_view_rotation_wheel)
+        self.view_canvas.bind("<ButtonRelease-1>", self.update_view_rotation_wheel)
+
+        # Entry for view rotation angle
+        self.view_angle_entry = tk.Entry(left_wheel_frame, width=5, font=config.LABEL_FONT)
+        self.view_angle_entry.grid(row=1, column=0, pady=5)
+        # Initialize view rotation angle based on config.VIEW_ROTATION
+        initial_view_angle = {0: 0, 1: 90, 2: 180, 3: 270}.get(config.VIEW_ROTATION, 0)
+        self.view_angle_entry.insert(0, f"{initial_view_angle}")
+        self.view_angle_entry.bind('<Return>', self.set_view_angle_from_entry)
+
+        # Label for view rotation wheel
+        view_rotation_wheel_label = tk.Label(
+            left_wheel_frame,
+            text="View Rotation",
+            background=config.THEME_COLOR,
+            foreground=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
+        view_rotation_wheel_label.grid(row=2, column=0, pady=5, sticky='n')
+
+        # Initialize the pointer for view rotation wheel
+        view_angle = initial_view_angle
+        end_x = self.view_wheel_center_x + self.view_wheel_radius * math.sin(math.radians(view_angle))
+        end_y = self.view_wheel_center_y - self.view_wheel_radius * math.cos(math.radians(view_angle))
+        self.view_canvas.coords(self.view_pointer_line, self.view_wheel_center_x, self.view_wheel_center_y, end_x, end_y)
+
+        # --- Camera Rotation Wheel (Right Wheel) ---
+        self.canvas = tk.Canvas(right_wheel_frame, width=100, height=100, bg=config.THEME_COLOR, highlightthickness=0)
         self.canvas.grid(row=0, column=0, padx=10, pady=10)
 
         self.wheel_radius = 40
@@ -3142,29 +3215,31 @@ class GUI:
 
         self.wheel_image = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
         self.wheel_draw = ImageDraw.Draw(self.wheel_image)
-        self.draw_anti_aliased_wheel()
+        self.draw_anti_aliased_wheel(self.wheel_draw, self.wheel_center_x, self.wheel_center_y, self.wheel_radius)
 
         self.wheel_tk_image = ImageTk.PhotoImage(self.wheel_image)
         self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.wheel_tk_image)
         self.pointer_line = self.canvas.create_line(
             self.wheel_center_x,
             self.wheel_center_y,
-            self.wheel_center_x + self.wheel_radius,
-            self.wheel_center_y,
+            self.wheel_center_x,
+            self.wheel_center_y - self.wheel_radius,
             width=2,
             fill=config.HIGHLIGHT_COLOR
         )
         self.canvas.bind("<B1-Motion>", self.update_wheel)
 
-        # Use grid for the angle entry
-        self.angle_entry = tk.Entry(wheel_frame, width=5, font=config.LABEL_FONT)
+        # Angle entry for camera rotation
+        self.angle_entry = tk.Entry(right_wheel_frame, width=5, font=config.LABEL_FONT)
         self.angle_entry.grid(row=1, column=0, pady=5)
-        self.angle_entry.insert(0, "270")
+        # Initialize camera rotation angle based on config.CAMERA_ROTATION
+        initial_camera_angle = getattr(config, 'CAMERA_ROTATION', 270)
+        self.angle_entry.insert(0, f"{initial_camera_angle}")
         self.angle_entry.bind('<Return>', self.set_angle_from_entry)
 
-        # Place the label directly under the entry box
+        # Label for camera rotation wheel
         rotation_wheel_label = tk.Label(
-            wheel_frame,
+            right_wheel_frame,
             text="Camera Rotation",
             background=config.THEME_COLOR,
             foreground=config.TEXT_COLOR,
@@ -3172,69 +3247,95 @@ class GUI:
         )
         rotation_wheel_label.grid(row=2, column=0, pady=5, sticky='n')
 
-        end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(270))
-        end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(270))
+        # Initialize the pointer for camera rotation wheel
+        camera_angle = float(initial_camera_angle)
+        end_x = self.wheel_center_x + self.wheel_radius * math.sin(math.radians(camera_angle))
+        end_y = self.wheel_center_y - self.wheel_radius * math.cos(math.radians(camera_angle))
         self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
 
-
-    def on_focus_slider_change(self, event):
-        """Handle changes in the focus slider."""
-        focus_value = int(event)
-        print(f"Focus Slider moved to: {focus_value}")
-
-    def draw_anti_aliased_wheel(self):
+    def draw_anti_aliased_wheel(self, draw_obj, center_x, center_y, radius):
         """Draw an anti-aliased wheel for the rotation control."""
-        self.wheel_draw.ellipse(
-            [self.wheel_center_x - self.wheel_radius, self.wheel_center_y - self.wheel_radius,
-             self.wheel_center_x + self.wheel_radius, self.wheel_center_y + self.wheel_radius],
+        draw_obj.ellipse(
+            [center_x - radius, center_y - radius,
+            center_x + radius, center_y + radius],
             outline=config.HIGHLIGHT_COLOR, width=2
         )
 
+    def update_view_rotation_wheel(self, event):
+        """Update the view rotation wheel based on mouse movement."""
+        dx = event.x - self.view_wheel_center_x
+        dy = event.y - self.view_wheel_center_y
+        angle = (int(math.degrees(math.atan2(dx, -dy))) % 360)
+
+        # Snap angle to nearest multiple of 90 degrees
+        angle = (round(angle / 90) * 90) % 360
+
+        end_x = self.view_wheel_center_x + self.view_wheel_radius * math.sin(math.radians(angle))
+        end_y = self.view_wheel_center_y - self.view_wheel_radius * math.cos(math.radians(angle))
+        self.view_canvas.coords(self.view_pointer_line, self.view_wheel_center_x, self.view_wheel_center_y, end_x, end_y)
+
+        self.view_angle_entry.delete(0, tk.END)
+        self.view_angle_entry.insert(0, f"{angle}")
+
+        # Update config.VIEW_ROTATION
+        view_rotation_value = {0: 0, 90: 1, 180: 2, 270: 3}[angle]
+        config.VIEW_ROTATION = view_rotation_value
+
+    def set_view_angle_from_entry(self, event):
+        """Set the view rotation angle from the entry field."""
+        try:
+            angle = int(self.view_angle_entry.get()) % 360
+        except ValueError:
+            angle = 0
+
+        # Snap angle to nearest multiple of 90 degrees
+        angle = (round(angle / 90) * 90) % 360
+        self.view_angle_entry.delete(0, tk.END)
+        self.view_angle_entry.insert(0, f"{angle}")
+
+        end_x = self.view_wheel_center_x + self.view_wheel_radius * math.sin(math.radians(angle))
+        end_y = self.view_wheel_center_y - self.view_wheel_radius * math.cos(math.radians(angle))
+        self.view_canvas.coords(self.view_pointer_line, self.view_wheel_center_x, self.view_wheel_center_y, end_x, end_y)
+
+        # Update config.VIEW_ROTATION
+        view_rotation_value = {0: 0, 90: 1, 180: 2, 270: 3}[angle]
+        config.VIEW_ROTATION = view_rotation_value
+
+        print(f"View rotation set to: {angle} degrees (config.VIEW_ROTATION = {view_rotation_value})")
+
     def update_wheel(self, event):
-        """Update the rotation wheel based on mouse movement."""
+        """Update the camera rotation wheel based on mouse movement."""
         dx = event.x - self.wheel_center_x
         dy = event.y - self.wheel_center_y
-        angle = int(math.degrees(math.atan2(dy, dx))) % 360
+        angle = (int(math.degrees(math.atan2(dx, -dy))) % 360)
 
-        end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(angle))
-        end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(angle))
+        end_x = self.wheel_center_x + self.wheel_radius * math.sin(math.radians(angle))
+        end_y = self.wheel_center_y - self.wheel_radius * math.cos(math.radians(angle))
         self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
 
         self.angle_entry.delete(0, tk.END)
         self.angle_entry.insert(0, f"{angle:.0f}")
-        self.image_acquisition_thread._rotation_angle = float(self.angle_entry.get())
+        # Update the config parameter and the image acquisition thread
+        config.CAMERA_ROTATION = angle
+        self.image_acquisition_thread._rotation_angle = angle
 
-    def submit_entry(self, event, axis):
-        """Submit the position entry for a single axis and initiate movement."""
-        entry_value = self.position_entries[axis].get().strip()
-        if self.validate_entries(entry_value):
-            position = int(entry_value)
-            if axis in ['X', 'Y']:
-                # Map axis to stage number
-                stage = 4 if axis == 'X' else 5
-                threading.Thread(
-                    target=self.move_and_update_progress,
-                    args=([position], (stage,)),
-                    daemon=True
-                ).start()
-            elif axis == 'Z':
-                threading.Thread(
-                    target=self.move_and_update_progress,
-                    args=([position], (6,)),
-                    daemon=True
-                ).start()
-            # Clear the entry after submission
-            self.position_entries[axis].delete(0, tk.END)
+    def set_angle_from_entry(self, event):
+        """Set the camera rotation angle from the entry field."""
+        try:
+            angle = float(self.angle_entry.get()) % 360
+        except ValueError:
+            angle = 0
 
-    def validate_entries(self, *entries):
-        """Validate that the entries are integers."""
-        for entry in entries:
-            try:
-                int(entry)
-            except ValueError:
-                messagebox.showerror("Input Error", "All fields must be integers!")
-                return False
-        return True
+        end_x = self.wheel_center_x + self.wheel_radius * math.sin(math.radians(angle))
+        end_y = self.wheel_center_y - self.wheel_radius * math.cos(math.radians(angle))
+        self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
+        # Update the config parameter and the image acquisition thread
+        config.CAMERA_ROTATION = angle
+        self.image_acquisition_thread._rotation_angle = angle
+
+        print(f"Camera rotation set to: {angle:.2f} degrees")
+
+
 
     def move_and_update_progress(self, pos, stages=(4, 5)):
         """Move the stage to a position and update the progress bar during the operation."""
@@ -3245,27 +3346,6 @@ class GUI:
 
         self.update_progress(100, "Movement complete.")
 
-    def validate_entries(self, *entries):
-        """Validate that the entries are integers."""
-        for entry in entries:
-            if not entry.isdigit():
-                messagebox.showerror("Input Error", "All fields must be integers!")
-                return False
-        return True
-
-    def set_angle_from_entry(self, event):
-        """Set the rotation angle from the entry field."""
-        try:
-            angle = float(self.angle_entry.get()) % 360
-        except ValueError:
-            angle = 0
-
-        end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(angle))
-        end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(angle))
-        self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
-        self.image_acquisition_thread._rotation_angle = angle
-
-        print(f"Camera rotation set to: {angle:.2f} degrees")
 
     def on_closing(self):
         """Handle the cleanup on closing the application."""

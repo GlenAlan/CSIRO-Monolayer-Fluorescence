@@ -243,6 +243,10 @@ I added an advanced parameter option allowing the configuration of several behin
 - Binning
 - Rotation of view
 
+
+# 04/10/2024
+- Backup Image
+
 ### Remainder of the placement
 
 - [X] Add cat in a Santa hat
@@ -266,13 +270,17 @@ I added an advanced parameter option allowing the configuration of several behin
 - [X] Rescale stichable image
 - [X] Make larger ML outline
   
-- [ ] Give the window a logo and package it into a .exe if possible
+- [X] Give the window a logo and package it into a .exe if possible
 - [ ] Add advanced parameters
-- [ ] Refine quality parameters
+- [ ] Refine monolayer quality parameters
+- [ ] Documentation
+- [ ] Comment GUI
 - [ ] Add a scale to the results (&live?) image
 
 - [ ] Add a save and load for settings etc.
 - [ ] Check all relavent buttons get disabled during potentially colliding processes
+- [ ] Stop button
+- [ ] Autofocus bias towards the monolayer colour (focus when the color is found and determine if there is something to focus on using colour instead of intensity)
 
 
 Things to fix:  (DONE 4/10/24)
