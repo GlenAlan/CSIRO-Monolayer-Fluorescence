@@ -234,6 +234,15 @@ We showed Matt the progress of our project, highlighting all the new features we
 
 ### Glen
 
+I added an advanced parameter option allowing the configuration of several behind the scenes parameters in the GUI. Additionally I refined the focus and exposure routiene and bug fixed.
+
+# 27/09/2024
+
+### Glen
+- Speed
+- Binning
+- Rotation of view
+
 ### Remainder of the placement
 
 - [X] Add cat in a Santa hat
