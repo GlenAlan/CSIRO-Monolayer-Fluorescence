@@ -1125,7 +1125,7 @@ class LiveViewCanvas(tk.Canvas):
         scale (float): The scaling factor used to resize the image.
     """
     
-    def __init__(self, parent, image_queue):
+    def __init__(self, parent, image_queue, scale_bar=False):
         """
         Initializes the LiveViewCanvas with a parent widget and an image queue. It also binds a resizing event
         to the canvas and starts the image update loop.
@@ -1142,6 +1142,8 @@ class LiveViewCanvas(tk.Canvas):
         
         # Bind the canvas resize event to the on_resize method
         self.bind("<Configure>", self.on_resize)
+
+        self.scale_bar = scale_bar
 
         # Start the image display loop
         self._display_image()
@@ -1163,7 +1165,7 @@ class LiveViewCanvas(tk.Canvas):
             # Continuously retrieve the latest available image from the queue
             while True:
                 try:
-                    image = self.image_queue.get_nowait()  # Get an image from the queue without waiting
+                    image = self.image_queue.get_nowait()  # Get an image from the queue without waiting                  
                 except queue.Empty:
                     break  # Exit the loop if no more images are in the queue
         except Exception as e:
@@ -1232,10 +1234,25 @@ class LiveViewCanvas(tk.Canvas):
         # Clear the canvas before drawing the new image
         self.delete("all")
 
-        # Convert the resized image into a format compatible with Tkinter
+        if self.scale_bar:
+            # Add scalebar to image
+            sbx1 = int(new_width/10)
+            sby1 = int(new_height-new_height/10)
+            scaletext = str(int(1000/config.CAMERA_PROPERTIES["lens"])) + "um"
+            # First convert image to NumPy array
+            image_np = np.array(self.displayed_image)
+            image_np = cv2.line(image_np, (sbx1,sby1), (int(2.5*sbx1),sby1), (255,255,255), 1) # Add scalebar
+            image_np = cv2.putText(image_np, scaletext, (sbx1,int(sby1-5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+            #Convert back to PIL image
+            image_PIL = Image.fromarray(image_np)
+            self.displayed_image = image_PIL
+
+            # Convert the resized image into a format compatible with Tkinter
         self.photo_image = ImageTk.PhotoImage(self.displayed_image)
 
-        # Center the image on the canvas
+
+
+        # Center the image on the canvaans
         self.image_x0 = (canvas_width - new_width) // 2  # X-coordinate for centering
         self.image_y0 = (canvas_height - new_height) // 2  # Y-coordinate for centering
         self.create_image(self.image_x0, self.image_y0, anchor='nw', image=self.photo_image)  # Draw the image
@@ -1552,7 +1569,7 @@ def post_processing(gui, canvas):
 
     # Print detailed information about each monolayer
     for i, layer in enumerate(monolayers):
-        print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position}      Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
+        print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position},  Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
         # cv2.imwrite(f"Images/Monolayers/{i+1}.png", layer.image)
 
     # Final progress update
@@ -2035,7 +2052,7 @@ class GUI:
         self.setup_notebook()
 
         # Live camera view in the left frame
-        self.live_view_canvas = LiveViewCanvas(self.left_frame, self.image_acquisition_thread._image_queue)
+        self.live_view_canvas = LiveViewCanvas(self.left_frame, self.image_acquisition_thread._image_queue, scale_bar=True)
         self.live_view_canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
         self.live_view_canvas.bind("<Button-1>", self.move_on_click)
 
@@ -2290,7 +2307,7 @@ class GUI:
         self.main_frame_controls.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
 
         # Create stitched view canvas
-        self.stitched_view_canvas = LiveViewCanvas(self.tabs["main"], queue.Queue(maxsize=config.MAX_QUEUE_SIZE))
+        self.stitched_view_canvas = LiveViewCanvas(self.tabs["main"], queue.Queue(maxsize=config.MAX_QUEUE_SIZE), scale_bar=False)
         self.stitched_view_canvas.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
 
         # Configure grid in 'main' tab
@@ -2504,7 +2521,7 @@ class GUI:
             label.grid(row=i, column=0, sticky='w')
             pos_label = tk.Label(
                 self.position_frame,
-                text="0.00 nm",
+                text="0.00 mm",
                 padx=5,
                 bg=config.BUTTON_COLOR,
                 fg=config.TEXT_COLOR,
@@ -2519,7 +2536,8 @@ class GUI:
         """Update the positions displayed in the GUI."""
         positions = get_pos(self.stage_controller, stages=(4, 5, 6))
         for i, pos_label in enumerate(self.position_labels):
-            pos_label.config(text=f"{positions[i]:.2e} nm")
+            pos = positions[i]/1e6
+            pos_label.config(text=f"{pos:.3f} mm")
 
         # Schedule the next update
         self.root.after(config.POSITION_UPDATE_INTERVAL, self.update_positions)
@@ -2530,7 +2548,7 @@ class GUI:
         # Main tab position entry label
         self.position_entry_label = tk.Label(
             self.main_frame_controls,
-            text="Enter Positions (nm):",
+            text="Enter Positions (mm):",
             bg=config.THEME_COLOR,
             fg=config.TEXT_COLOR,
             font=config.LABEL_FONT
@@ -2624,6 +2642,40 @@ class GUI:
             entry.delete(0, tk.END)
 
 
+    def submit_entry(self, event, axis):
+        """Submit the position entry for a single axis and initiate movement."""
+        entry_value = self.position_entries[axis].get().strip()
+        if self.validate_entries(entry_value):
+            position = int(int(entry_value)*1e6)   # mm to nm
+            if axis in ['X', 'Y']:
+                # Map axis to stage number
+                stage = 4 if axis == 'X' else 5
+                threading.Thread(
+                    target=self.move_and_update_progress,
+                    args=([position], (stage,)),
+                    daemon=True
+                ).start()
+            elif axis == 'Z':
+                threading.Thread(
+                    target=self.move_and_update_progress,
+                    args=([position], (6,)),
+                    daemon=True
+                ).start()
+            # Clear the entry after submission
+            self.position_entries[axis].delete(0, tk.END)
+
+
+    def validate_entries(self, *entries):
+        """Validate that the entries are integers."""
+        for entry in entries:
+            try:
+                int(entry)
+            except ValueError:
+                messagebox.showerror("Input Error", "All fields must be integers!")
+                return False
+        return True
+    
+
     def create_main_frame_buttons(self):
         """Create buttons in the main frame."""
         self.main_frame_controls_position = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR, padx=25)
@@ -2684,6 +2736,30 @@ class GUI:
                 font=config.BUTTON_FONT
             )
             button.grid(row=row, column=col, padx=2, pady=2, sticky='nsew')
+
+        # Navigation buttons positions
+        quick_nav_buttons = [
+            ("Top Left", (0, 0), lambda: move(self.stage_controller, (30e6, 30e6), wait=False)),
+            ("Top Right", (0, 2), lambda: move(self.stage_controller, (0e6, 30e6), wait=False)),
+            ("Bottom Left", (2, 0), lambda: move(self.stage_controller, (30e6, 0e6), wait=False)),
+            ("Bottom Right", (2, 2), lambda: move(self.stage_controller, (0, 0), wait=False)),
+            ("Centre", (1, 1), lambda: move(self.stage_controller, (12.5e6, 12.5e6), wait=False)),
+        ]
+
+
+        # Create quick navigation buttons with equal size
+        for text, (row, col), cmd in quick_nav_buttons:
+            button = tk.Button(
+                navigation_frame,
+                text=text,
+                command=cmd,
+                bg=config.BUTTON_COLOR_2,
+                fg=config.TEXT_COLOR,
+                font=config.BUTTON_FONT
+            )
+            button.grid(row=row, column=col, padx=2, pady=2, sticky='nsew')
+            
+
 
         # Focus buttons positions (placed below the navigation buttons)
         focus_frame = tk.Frame(self.main_frame_controls, bg=config.THEME_COLOR)
