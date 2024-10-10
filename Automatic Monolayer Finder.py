@@ -150,7 +150,7 @@ def scale_down_canvas(canvas, scale_factor):
         return downsampled_canvas
 
 
-def save_image(image, filename, scale_down_factor=1):
+def save_image(image, filename, scale_down_factor=1, timestamp=True):
     """
     Saves an image to a file after optionally scaling it down.
 
@@ -164,7 +164,9 @@ def save_image(image, filename, scale_down_factor=1):
         None
     """
     file, ending = filename.split(".")
-    filename = file + datetime.now().strftime("_%Y-%m-%d_%H%M%S") + "." + ending
+    if timestamp:
+        filename = file + datetime.now().strftime("_%Y-%m-%d_%H%M%S") + "." + ending
+
     cv2.imwrite(filename, scale_down_canvas(image, scale_down_factor))
     print(format_size(os.path.getsize(filename)))
 
@@ -263,33 +265,96 @@ def rgb2hex(color):
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
 
 
-def get_pos(mcm301obj, stages=(4, 5, 6)):
+def convert_encoder_to_nm_with_retries(mcm301obj, slot, encoder_count, nm, retries=10, delay=0.01):
+    """ Convert raw encoder to nm with retries.
+
+    Args:
+        slot (int): Target slot (4,5,6).
+        encoder_count (int): Encoder count.
+        nm (list): List to store the converted nm value.
+        retries (int): Number of retry attempts.
+        delay (float): Delay between retries in seconds.
+
+    Returns:
+        int: 0 on success; negative number on failure.
     """
-    Retrieves the current position of the specified stages.
+    for attempt in range(retries):
+        ret = mcm301obj.convert_encoder_to_nm(slot, encoder_count, nm)
+        if ret == 0:
+            return 0  # Success
+        else:
+            logging.warning(f"convert_encoder_to_nm failed on attempt {attempt + 1}/{retries} for slot {slot}. Retrying...")
+            time.sleep(delay)
+    logging.error(f"convert_encoder_to_nm failed after {retries} attempts for slot {slot}.")
+    return ret  # Return the last error code
+
+
+def convert_nm_to_encoder_with_retries(mcm301obj, slot, nm_position, encoder_count, retries=10, delay=0.01):
+    """ Convert nm to raw encoder count with retries.
+
+    Args:
+        slot (int): Target slot (4,5,6).
+        nm_position (float): Position in nanometers.
+        encoder_count (list): List to store the encoder count.
+        retries (int): Number of retry attempts.
+        delay (float): Delay between retries in seconds.
+
+    Returns:
+        int: 0 on success; negative number on failure.
+    """
+    for attempt in range(retries):
+        ret = mcm301obj.convert_nm_to_encoder(slot, nm_position, encoder_count)
+        if ret == 0:
+            return 0  # Success
+        else:
+            logging.warning(f"convert_nm_to_encoder failed on attempt {attempt + 1}/{retries} for slot {slot}. Retrying...")
+            time.sleep(delay)
+    logging.error(f"convert_nm_to_encoder failed after {retries} attempts for slot {slot}.")
+    return ret  # Return the last error code
+
+
+
+
+def get_pos(mcm301obj, stages=(4, 5, 6), retries=10, delay=0.01):
+    """
+    Retrieves the current position of the specified stages with retries.
 
     Args:
         mcm301obj (MCM301): The MCM301 object that controls the stage.
-        stages (list): A list of stage numbers for which the positions are to be retrieved.
-   
+        stages (tuple): A tuple of stage numbers for which the positions are to be retrieved.
+        retries (int): Number of retry attempts for each stage.
+        delay (float): Delay between retries in seconds.
+
     Returns:
-        pos (list): A list of positions corresponding to the specified stages,
-                    in nanometers.
-   
-    The function queries the current encoder value for each specified stage,
-    converts that value into nanometers, and returns the positions as a list.
+        pos (list): A list of positions corresponding to the specified stages, in nanometers.
     """
     pos = []
     for stage in stages:
-        encoder_val, nm = [0], [0]
-         # Get the current encoder value for the stage
-        mcm301obj.get_mot_status(stage, encoder_val, [0])
+        encoder_val = [0]
+        nm = [0]
 
-        # Convert the encoder value to nanometers
-        mcm301obj.convert_encoder_to_nm(stage, encoder_val[0], nm)
+        for attempt in range(retries):
+            # Get the current encoder value for the stage
+            ret_status = mcm301obj.get_mot_status(stage, encoder_val, [0])
+            if ret_status != 0:
+                logging.warning(f"Failed to get motor status for stage {stage} on attempt {attempt + 1}/{retries}. Retrying...")
+                time.sleep(delay)
+                continue
 
-        # Append the position to the list
-        pos.append(nm[0])
+            # Convert the encoder value to nanometers with retries
+            ret_convert = convert_encoder_to_nm_with_retries(mcm301obj, stage, encoder_val[0], nm)
+
+            # Successful retrieval and conversion
+            pos.append(nm[0])
+            break  # Exit the retry loop for this stage
+
+        else:
+            # If all retries failed
+            logging.error(f"Failed to get position for stage {stage} after {retries} attempts.")
+            pos.append(None)  # Append None to indicate failure
+
     return pos
+
 
 
 def move(mcm301obj, pos, stages=(4, 5), wait=True):
@@ -299,24 +364,37 @@ def move(mcm301obj, pos, stages=(4, 5), wait=True):
     Args:
         mcm301obj (MCM301): The MCM301 object that controls the stage.
         pos (tuple): The desired position to move to, given as a tuple of coordinates in nanometers.
-        stages (tuple): The stages to move, represented by integers between 4 and 6 (e.g., 4 for X-axis and 5 for Y-axis).
+        stages (tuple): The stages to move, represented by integers (e.g., 4 for X-axis and 5 for Y-axis).
         wait (bool): Whether to wait for the movement to complete before returning.
-   
-    The function converts the given nanometer position into encoder units that the stage controller can use,
-    then commands the stage to move to those positions. It continues to check the status of the stage
-    until it confirms that the movement is complete.
     """
     print(f"Moving to {', '.join(str(p) for p in pos)}")
 
+    if len(pos) != len(stages):
+        print("Error: Position and stages length mismatch")
+        return
+
     for i, stage in enumerate(stages):
         coord = [0]
+        position_nm = float(pos[i])
 
-        # Convert the positions from nanometers to encoder units
-        mcm301obj.convert_nm_to_encoder(stage, pos[i], coord)
-        print(f"Stage {stage}: {pos[i]} nm -> {coord[0]} encoder units")
+        # Convert the positions from nanometers to encoder units with retries
+        ret = convert_nm_to_encoder_with_retries(mcm301obj, stage, position_nm, coord)
+        if ret != 0:
+            logging.error(f"Failed to convert {position_nm} nm to encoder units for stage {stage}. Retrying...")
+            continue  # Skip moving this stage
 
-        # Move the stages to the required encoder position
-        mcm301obj.move_absolute(stage, coord[0])
+        encoder_units = coord[0]
+        if encoder_units < 0 or encoder_units > 2147483647:
+            logging.warning(f"Encoder units {encoder_units} out of bounds for stage {stage}")
+            continue  # Skip moving this stage
+
+        print(f"Stage {stage}: {position_nm} nm -> {encoder_units} encoder units")
+
+        # Move the stage to the required encoder position
+        ret_move = mcm301obj.move_absolute(stage, encoder_units)
+        if ret_move != 0:
+            logging.error(f"Failed to move stage {stage} to {encoder_units} encoder units. Error code: {ret_move}")
+            continue
 
     if wait:
         moving = True
@@ -324,11 +402,12 @@ def move(mcm301obj, pos, stages=(4, 5), wait=True):
             moving = False
             for i, stage in enumerate(stages):
                 # Wait until the stages have finished moving by checking the status bits
-                bit = [0]
-                mcm301obj.get_mot_status(stage, [0], bit)
-                if bit[0] not in config.CONFIRMATION_BITS:
+                encoder_val = [0]
+                status_bits = [0]
+                ret_status = mcm301obj.get_mot_status(stage, encoder_val, status_bits)
+
+                if status_bits[0] not in config.CONFIRMATION_BITS:
                     moving = True
-                # print(bit[0])
 
 
 def move_relative(mcm301obj, pos=[0, 0], stages=(4, 5), wait=True):
@@ -461,7 +540,12 @@ def bin_image(image_array: np.ndarray, binx: int, biny: int) -> np.ndarray:
     """
     
     # First bin using Numba for better exposure, then apply additional binning with OpenCV
-    return bin_image_cv2(bin_image_numba(image_array, binx, biny), binx, biny)
+    if binx == biny == 1:
+        return image_array
+    elif config.BINNING_EXPOSURE_INCREASE:
+        return bin_image_cv2(bin_image_numba(image_array, binx, biny), binx, biny)
+    else:
+        return bin_image_cv2(image_array, binx*2, biny*2)
 
 
 
@@ -1100,6 +1184,8 @@ class LiveViewCanvas(tk.Canvas):
         Args:
             image (PIL.Image): The image to be displayed on the canvas.
         """
+        self.current_image = image  # Save the current image for potential redrawing
+
         # Rotate the image based on the current view setting
         rotation = view_num_to_rotation[config.VIEW_ROTATION % 4]  # Determine the rotation angle based on config
         if rotation is not None:
@@ -1113,7 +1199,7 @@ class LiveViewCanvas(tk.Canvas):
         # Store the original image size before resizing
         self.original_image_width = image.width
         self.original_image_height = image.height
-        self.current_image = image  # Save the current image for potential redrawing
+        
 
         # Get the current size of the canvas
         canvas_width = self.winfo_width()
@@ -1304,6 +1390,7 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
     with ThreadPoolExecutor() as executor:
         futures = []
 
+        save_counter = 0
         while True:
             # Get the next item from the frame queue
             item = frame_queue.get()
@@ -1320,6 +1407,12 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
 
             stitched_image = Image.fromarray(cv2.cvtColor(scaled_canvas, cv2.COLOR_BGRA2RGBA))
             stitched_view_canvas.update_image_display(stitched_image)
+
+            save_counter += 1
+            if save_counter > config.SAVE_EVERY_N_FRAMES:
+                threading.Thread(target=lambda: save_image(canvas, "Images/backup_image.png", 4, False), daemon=True).start()
+                save_counter = 0
+
 
         # Wait for all futures to complete
         for future in futures:
@@ -1484,7 +1577,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     print(f"Total images to capture: {num_images}")
 
     config.current_image = 0 
-    focuses = [] # List to store focus values for autofocusq
+    focuses = [] # List to store focus values for autofocus
 
     def capture_and_store_frame(x, y, focuses):
         """
@@ -1509,13 +1602,14 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
             intensity_upper = np.percentile(frame_array, 100 - config.AUTOFOCUS_REQUIRED_SUBSTANCE_PERCENT)
             intensity_range = intensity_upper - intensity_lower
 
+            focuses.append(get_focus(frame))
+
             # Perform focus check based on contrast
             if intensity_range > config.AUTOFOCUS_REQUIRED_CONTRAST:
-                focuses.append(get_focus(frame))
 
                 # Trigger autofocus if focus value drops below threshold
-                if focuses[-1] < 1 and len(focuses) > config.FOCUS_FRAME_AVG:
-                    auto_focus(mcm301obj, image_queue)
+                if focuses[-1] < config.FOCUSED_THRESHOLD and len(focuses) > config.FOCUS_FRAME_AVG:
+                    auto_focus(mcm301obj, image_queue, [80*config.FOCUS_RANGE/config.CAMERA_PROPERTIES["lens"], 10])
                     focuses.clear()
                     frame = image_queue.get(timeout=1000)
                     focuses.append(get_focus(frame))
@@ -1527,9 +1621,12 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
                     frame = image_queue.get(timeout=1000)
                     focuses.append(get_focus(frame))
 
-            # If contrast is too low, it may be waiting for an object to focus on
-            elif len(focuses) > config.FOCUS_FRAME_AVG * 2 and np.average(focuses[0:-config.FOCUS_FRAME_AVG]) > np.average(focuses[-config.FOCUS_FRAME_AVG:-1]) * config.FOCUS_BUFFER:
-                print("Waiting for object to focus on")
+            # Focus if it has been too long since the last one
+            elif len(focuses) > config.MAX_FRAMES_BETWEEN_FOCUS:
+                auto_focus(mcm301obj, image_queue)
+                focuses.clear()
+                frame = image_queue.get(timeout=1000)
+                focuses.append(get_focus(frame))
 
         # Store the captured frame and its position in the frame queue
         frame_queue.put((frame, (x, y)))
@@ -1572,7 +1669,7 @@ def alg(gui, mcm301obj, image_queue, frame_queue, start, end):
     # Perform autofocus before starting if enabled
     if config.AUTOFOCUS:
         gui.root.after(0, lambda: gui.update_progress(1, "Focusing..."))
-        auto_focus(mcm301obj, image_queue, [config.FOCUS_RANGE * 2, config.FOCUS_STEPS * 2])
+        auto_focus(mcm301obj, image_queue, [config.FOCUS_RANGE * 4, config.FOCUS_STEPS * 4])
 
     # Scan in lines until the entire area is covered
     while y < end[1]:
@@ -1899,7 +1996,8 @@ class GUI:
     def __init__(self, root, camera):
         # Initialize the main window
         self.root = root
-        self.root.title('Camera Control Interface')
+        self.root.title('Automatic Monolayer Finder')
+        self.root.iconbitmap("assets/icon.ico")
         self.root.configure(bg=config.THEME_COLOR)
 
 
@@ -2159,13 +2257,11 @@ class GUI:
             "main": ttk.Frame(notebook, style='TFrame'),
             "calibration": ttk.Frame(notebook, style='TFrame'),
             "results": ttk.Frame(notebook, style='TFrame'),
-            "plots": ttk.Frame(notebook, style='TFrame')
         }
 
         notebook.add(self.tabs["main"], text="Main Control")
         notebook.add(self.tabs["calibration"], text="Calibration")
         notebook.add(self.tabs["results"], text="Results & Analysis")
-        notebook.add(self.tabs["plots"], text="Plots")
 
         # Apply styles
         style = ttk.Style()
@@ -2220,10 +2316,6 @@ class GUI:
         # Results Tab Layout
         self.results_frame_image = tk.Canvas(self.tabs["results"], bg=config.THEME_COLOR, highlightthickness=0)
         self.results_frame_image.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # Results Tab Layout
-        self.plots_frame = tk.Canvas(self.tabs["plots"], bg=config.THEME_COLOR, highlightthickness=0)
-        self.plots_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Load and display the image
         self.display_results_tab(Image.open("assets/placeholder.webp"))
@@ -2385,7 +2477,7 @@ class GUI:
                 text="Redo output with new config",
                 command=lambda: threading.Thread(
                     target=post_processing,
-                    args=(self, config.canvas, config.start_pos),
+                    args=(self, config.canvas),
                     daemon=True
                 ).start(),
                 bg=config.BUTTON_COLOR,
@@ -2678,6 +2770,26 @@ class GUI:
         )
         self.auto_expose_button.grid(row=0, column=2, rowspan=2, padx=10, pady=5, sticky='ns')
 
+        # Software Exposure Increase Checkbox
+        self.software_exposure_var = tk.BooleanVar(value=config.BINNING_EXPOSURE_INCREASE)
+        self.software_exposure_checkbox = tk.Checkbutton(
+            gain_exposure_frame,
+            text="Software Exposure Increase",
+            variable=self.software_exposure_var,
+            command=self.update_software_exposure_increase,
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR, 
+            font=config.LABEL_FONT,
+            activebackground=config.THEME_COLOR,
+            selectcolor=config.THEME_COLOR,
+        )
+        self.software_exposure_checkbox.grid(row=2, column=0, columnspan=3, padx=5, pady=5, sticky='w')
+
+    def update_software_exposure_increase(self):
+        """Update the BINNING_EXPOSURE_INCREASE configuration based on the checkbox state."""
+        config.BINNING_EXPOSURE_INCREASE = self.software_exposure_var.get()
+
+
     def open_advanced_settings(self):
         """Open a window to adjust advanced configuration settings."""
         # Create a new top-level window
@@ -2864,7 +2976,7 @@ class GUI:
                 self.lens_entry.delete(0, tk.END)
                 self.lens_entry.insert(0, str(lens_value))
             config.CAMERA_PROPERTIES['lens'] = lens_value
-            config.CAMERA_PROPERTIES["px_size"] * config.CAMERA_BINNING**2 * 1000 / config.CAMERA_PROPERTIES["lens"]
+            config.NM_PER_PX = config.CAMERA_PROPERTIES["px_size"] * config.CAMERA_BINNING**2 * 1000 / config.CAMERA_PROPERTIES["lens"]
             config.DIST = int(min(config.CAMERA_DIMS) * config.NM_PER_PX * (1 - config.IMAGE_OVERLAP))
             print(config.NM_PER_PX)
 
@@ -2912,6 +3024,9 @@ class GUI:
             self.auto_expose_button.config(state='disabled')
 
             test_gain, test_exposure = 100, 33000
+            max_gain = 350
+            config.BINNING_EXPOSURE_INCREASE = False
+            self.software_exposure_var.set(config.BINNING_EXPOSURE_INCREASE)
             target = (config.BRIGHTNESS_RANGE[0] + config.BRIGHTNESS_RANGE[1]) / 2
             self.camera.gain = int(test_gain)
             self.camera.exposure_time_us = int(test_exposure)
@@ -2923,7 +3038,7 @@ class GUI:
             while not (config.BRIGHTNESS_RANGE[0] <= average_intensity <= config.BRIGHTNESS_RANGE[1]):
                 delta_intensity = target - average_intensity
                 
-                if 1 < test_gain < 350:
+                if 1 < test_gain < max_gain:
                     if average_intensity > 250 and test_gain > 5 :
                         test_gain *= 0.5
                     elif average_intensity < 10:
@@ -2934,9 +3049,14 @@ class GUI:
                         test_gain *= min(config.BRIGHTNESS_RANGE[1]/average_intensity, 1.2)
                     else:
                         test_gain += delta_intensity/10
-                    test_gain = min(max(1, test_gain), 350)
+                    test_gain = min(max(1, test_gain), max_gain)
                 else:
-                    if average_intensity > 240:
+                    if test_exposure > 200000 and not config.BINNING_EXPOSURE_INCREASE:
+                        config.BINNING_EXPOSURE_INCREASE = True
+                        self.software_exposure_var.set(config.BINNING_EXPOSURE_INCREASE)
+                        test_gain, test_exposure = 100, 33000
+                        max_gain = 200
+                    elif average_intensity > 240:
                         test_exposure *= 0.5
                     elif average_intensity < 16:
                         test_exposure *= 1.99
@@ -2956,7 +3076,7 @@ class GUI:
                 latest_frame = np.array(self.image_acquisition_thread._image_queue.get(max(int(test_exposure/1e3), 1000)))
                 average_intensity = latest_frame.mean()
                 print(average_intensity)
-                print(f"Gain: {test_gain}, Exposure: {test_exposure}")
+                print(f"Gain: {test_gain}, Exposure: {test_exposure}, Bin Sum:{config.BINNING_EXPOSURE_INCREASE}")
 
             # Update config with final gain and exposure values
             config.CAMERA_PROPERTIES['gain'] = int(test_gain)
@@ -2967,6 +3087,8 @@ class GUI:
             self.gain_entry.insert(0, str(config.CAMERA_PROPERTIES['gain'] / 10))
             self.exposure_entry.delete(0, tk.END)
             self.exposure_entry.insert(0, str(config.CAMERA_PROPERTIES['exposure'] / 1000))
+
+            self.software_exposure_var.set(config.BINNING_EXPOSURE_INCREASE)
 
             # Re-enable the button after the process is complete
             self.auto_expose_button.config(state='normal')
@@ -3018,12 +3140,73 @@ class GUI:
 
 
     def create_rotation_wheel(self):
-        """Create a 360-degree rotation wheel in the calibration tab."""
+        """Create rotation wheels in the calibration tab."""
         wheel_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
         wheel_frame.grid(row=2, column=0, columnspan=2, padx=20, pady=20, sticky='nsew')
 
-        # Use grid instead of pack for the canvas
-        self.canvas = tk.Canvas(wheel_frame, width=100, height=100, bg=config.THEME_COLOR, highlightthickness=0)
+        # Configure grid for wheel_frame
+        wheel_frame.columnconfigure(0, weight=1)
+        wheel_frame.columnconfigure(1, weight=1)
+
+        # Left wheel frame for view rotation
+        left_wheel_frame = tk.Frame(wheel_frame, bg=config.THEME_COLOR)
+        left_wheel_frame.grid(row=0, column=0, padx=10, pady=10)
+
+        # Right wheel frame for camera rotation
+        right_wheel_frame = tk.Frame(wheel_frame, bg=config.THEME_COLOR)
+        right_wheel_frame.grid(row=0, column=1, padx=10, pady=10)
+
+        # --- View Rotation Wheel (Left Wheel) ---
+        self.view_canvas = tk.Canvas(left_wheel_frame, width=100, height=100, bg=config.THEME_COLOR, highlightthickness=0)
+        self.view_canvas.grid(row=0, column=0, padx=10, pady=10)
+
+        self.view_wheel_radius = 40
+        self.view_wheel_center_x = 50
+        self.view_wheel_center_y = 50
+
+        self.view_wheel_image = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
+        self.view_wheel_draw = ImageDraw.Draw(self.view_wheel_image)
+        self.draw_anti_aliased_wheel(self.view_wheel_draw, self.view_wheel_center_x, self.view_wheel_center_y, self.view_wheel_radius)
+
+        self.view_wheel_tk_image = ImageTk.PhotoImage(self.view_wheel_image)
+        self.view_canvas_image = self.view_canvas.create_image(0, 0, anchor=tk.NW, image=self.view_wheel_tk_image)
+        self.view_pointer_line = self.view_canvas.create_line(
+            self.view_wheel_center_x,
+            self.view_wheel_center_y,
+            self.view_wheel_center_x,
+            self.view_wheel_center_y - self.view_wheel_radius,
+            width=2,
+            fill=config.HIGHLIGHT_COLOR
+        )
+        self.view_canvas.bind("<B1-Motion>", self.update_view_rotation_wheel)
+        self.view_canvas.bind("<ButtonRelease-1>", self.update_view_rotation_wheel)
+
+        # Entry for view rotation angle
+        self.view_angle_entry = tk.Entry(left_wheel_frame, width=5, font=config.LABEL_FONT)
+        self.view_angle_entry.grid(row=1, column=0, pady=5)
+        # Initialize view rotation angle based on config.VIEW_ROTATION
+        initial_view_angle = {0: 0, 1: 90, 2: 180, 3: 270}.get(config.VIEW_ROTATION, 0)
+        self.view_angle_entry.insert(0, f"{initial_view_angle}")
+        self.view_angle_entry.bind('<Return>', self.set_view_angle_from_entry)
+
+        # Label for view rotation wheel
+        view_rotation_wheel_label = tk.Label(
+            left_wheel_frame,
+            text="View Rotation",
+            background=config.THEME_COLOR,
+            foreground=config.TEXT_COLOR,
+            font=config.LABEL_FONT
+        )
+        view_rotation_wheel_label.grid(row=2, column=0, pady=5, sticky='n')
+
+        # Initialize the pointer for view rotation wheel
+        view_angle = initial_view_angle
+        end_x = self.view_wheel_center_x + self.view_wheel_radius * math.sin(math.radians(view_angle))
+        end_y = self.view_wheel_center_y - self.view_wheel_radius * math.cos(math.radians(view_angle))
+        self.view_canvas.coords(self.view_pointer_line, self.view_wheel_center_x, self.view_wheel_center_y, end_x, end_y)
+
+        # --- Camera Rotation Wheel (Right Wheel) ---
+        self.canvas = tk.Canvas(right_wheel_frame, width=100, height=100, bg=config.THEME_COLOR, highlightthickness=0)
         self.canvas.grid(row=0, column=0, padx=10, pady=10)
 
         self.wheel_radius = 40
@@ -3032,29 +3215,31 @@ class GUI:
 
         self.wheel_image = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
         self.wheel_draw = ImageDraw.Draw(self.wheel_image)
-        self.draw_anti_aliased_wheel()
+        self.draw_anti_aliased_wheel(self.wheel_draw, self.wheel_center_x, self.wheel_center_y, self.wheel_radius)
 
         self.wheel_tk_image = ImageTk.PhotoImage(self.wheel_image)
         self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.wheel_tk_image)
         self.pointer_line = self.canvas.create_line(
             self.wheel_center_x,
             self.wheel_center_y,
-            self.wheel_center_x + self.wheel_radius,
-            self.wheel_center_y,
+            self.wheel_center_x,
+            self.wheel_center_y - self.wheel_radius,
             width=2,
             fill=config.HIGHLIGHT_COLOR
         )
         self.canvas.bind("<B1-Motion>", self.update_wheel)
 
-        # Use grid for the angle entry
-        self.angle_entry = tk.Entry(wheel_frame, width=5, font=config.LABEL_FONT)
+        # Angle entry for camera rotation
+        self.angle_entry = tk.Entry(right_wheel_frame, width=5, font=config.LABEL_FONT)
         self.angle_entry.grid(row=1, column=0, pady=5)
-        self.angle_entry.insert(0, "270")
+        # Initialize camera rotation angle based on config.CAMERA_ROTATION
+        initial_camera_angle = getattr(config, 'CAMERA_ROTATION', 270)
+        self.angle_entry.insert(0, f"{initial_camera_angle}")
         self.angle_entry.bind('<Return>', self.set_angle_from_entry)
 
-        # Place the label directly under the entry box
+        # Label for camera rotation wheel
         rotation_wheel_label = tk.Label(
-            wheel_frame,
+            right_wheel_frame,
             text="Camera Rotation",
             background=config.THEME_COLOR,
             foreground=config.TEXT_COLOR,
@@ -3062,69 +3247,95 @@ class GUI:
         )
         rotation_wheel_label.grid(row=2, column=0, pady=5, sticky='n')
 
-        end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(270))
-        end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(270))
+        # Initialize the pointer for camera rotation wheel
+        camera_angle = float(initial_camera_angle)
+        end_x = self.wheel_center_x + self.wheel_radius * math.sin(math.radians(camera_angle))
+        end_y = self.wheel_center_y - self.wheel_radius * math.cos(math.radians(camera_angle))
         self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
 
-
-    def on_focus_slider_change(self, event):
-        """Handle changes in the focus slider."""
-        focus_value = int(event)
-        print(f"Focus Slider moved to: {focus_value}")
-
-    def draw_anti_aliased_wheel(self):
+    def draw_anti_aliased_wheel(self, draw_obj, center_x, center_y, radius):
         """Draw an anti-aliased wheel for the rotation control."""
-        self.wheel_draw.ellipse(
-            [self.wheel_center_x - self.wheel_radius, self.wheel_center_y - self.wheel_radius,
-             self.wheel_center_x + self.wheel_radius, self.wheel_center_y + self.wheel_radius],
+        draw_obj.ellipse(
+            [center_x - radius, center_y - radius,
+            center_x + radius, center_y + radius],
             outline=config.HIGHLIGHT_COLOR, width=2
         )
 
+    def update_view_rotation_wheel(self, event):
+        """Update the view rotation wheel based on mouse movement."""
+        dx = event.x - self.view_wheel_center_x
+        dy = event.y - self.view_wheel_center_y
+        angle = (int(math.degrees(math.atan2(dx, -dy))) % 360)
+
+        # Snap angle to nearest multiple of 90 degrees
+        angle = (round(angle / 90) * 90) % 360
+
+        end_x = self.view_wheel_center_x + self.view_wheel_radius * math.sin(math.radians(angle))
+        end_y = self.view_wheel_center_y - self.view_wheel_radius * math.cos(math.radians(angle))
+        self.view_canvas.coords(self.view_pointer_line, self.view_wheel_center_x, self.view_wheel_center_y, end_x, end_y)
+
+        self.view_angle_entry.delete(0, tk.END)
+        self.view_angle_entry.insert(0, f"{angle}")
+
+        # Update config.VIEW_ROTATION
+        view_rotation_value = {0: 0, 90: 1, 180: 2, 270: 3}[angle]
+        config.VIEW_ROTATION = view_rotation_value
+
+    def set_view_angle_from_entry(self, event):
+        """Set the view rotation angle from the entry field."""
+        try:
+            angle = int(self.view_angle_entry.get()) % 360
+        except ValueError:
+            angle = 0
+
+        # Snap angle to nearest multiple of 90 degrees
+        angle = (round(angle / 90) * 90) % 360
+        self.view_angle_entry.delete(0, tk.END)
+        self.view_angle_entry.insert(0, f"{angle}")
+
+        end_x = self.view_wheel_center_x + self.view_wheel_radius * math.sin(math.radians(angle))
+        end_y = self.view_wheel_center_y - self.view_wheel_radius * math.cos(math.radians(angle))
+        self.view_canvas.coords(self.view_pointer_line, self.view_wheel_center_x, self.view_wheel_center_y, end_x, end_y)
+
+        # Update config.VIEW_ROTATION
+        view_rotation_value = {0: 0, 90: 1, 180: 2, 270: 3}[angle]
+        config.VIEW_ROTATION = view_rotation_value
+
+        print(f"View rotation set to: {angle} degrees (config.VIEW_ROTATION = {view_rotation_value})")
+
     def update_wheel(self, event):
-        """Update the rotation wheel based on mouse movement."""
+        """Update the camera rotation wheel based on mouse movement."""
         dx = event.x - self.wheel_center_x
         dy = event.y - self.wheel_center_y
-        angle = int(math.degrees(math.atan2(dy, dx))) % 360
+        angle = (int(math.degrees(math.atan2(dx, -dy))) % 360)
 
-        end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(angle))
-        end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(angle))
+        end_x = self.wheel_center_x + self.wheel_radius * math.sin(math.radians(angle))
+        end_y = self.wheel_center_y - self.wheel_radius * math.cos(math.radians(angle))
         self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
 
         self.angle_entry.delete(0, tk.END)
         self.angle_entry.insert(0, f"{angle:.0f}")
-        self.image_acquisition_thread._rotation_angle = float(self.angle_entry.get())
+        # Update the config parameter and the image acquisition thread
+        config.CAMERA_ROTATION = angle
+        self.image_acquisition_thread._rotation_angle = angle
 
-    def submit_entry(self, event, axis):
-        """Submit the position entry for a single axis and initiate movement."""
-        entry_value = self.position_entries[axis].get().strip()
-        if self.validate_entries(entry_value):
-            position = int(entry_value)
-            if axis in ['X', 'Y']:
-                # Map axis to stage number
-                stage = 4 if axis == 'X' else 5
-                threading.Thread(
-                    target=self.move_and_update_progress,
-                    args=([position], (stage,)),
-                    daemon=True
-                ).start()
-            elif axis == 'Z':
-                threading.Thread(
-                    target=self.move_and_update_progress,
-                    args=([position], (6,)),
-                    daemon=True
-                ).start()
-            # Clear the entry after submission
-            self.position_entries[axis].delete(0, tk.END)
+    def set_angle_from_entry(self, event):
+        """Set the camera rotation angle from the entry field."""
+        try:
+            angle = float(self.angle_entry.get()) % 360
+        except ValueError:
+            angle = 0
 
-    def validate_entries(self, *entries):
-        """Validate that the entries are integers."""
-        for entry in entries:
-            try:
-                int(entry)
-            except ValueError:
-                messagebox.showerror("Input Error", "All fields must be integers!")
-                return False
-        return True
+        end_x = self.wheel_center_x + self.wheel_radius * math.sin(math.radians(angle))
+        end_y = self.wheel_center_y - self.wheel_radius * math.cos(math.radians(angle))
+        self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
+        # Update the config parameter and the image acquisition thread
+        config.CAMERA_ROTATION = angle
+        self.image_acquisition_thread._rotation_angle = angle
+
+        print(f"Camera rotation set to: {angle:.2f} degrees")
+
+
 
     def move_and_update_progress(self, pos, stages=(4, 5)):
         """Move the stage to a position and update the progress bar during the operation."""
@@ -3135,27 +3346,6 @@ class GUI:
 
         self.update_progress(100, "Movement complete.")
 
-    def validate_entries(self, *entries):
-        """Validate that the entries are integers."""
-        for entry in entries:
-            if not entry.isdigit():
-                messagebox.showerror("Input Error", "All fields must be integers!")
-                return False
-        return True
-
-    def set_angle_from_entry(self, event):
-        """Set the rotation angle from the entry field."""
-        try:
-            angle = float(self.angle_entry.get()) % 360
-        except ValueError:
-            angle = 0
-
-        end_x = self.wheel_center_x + self.wheel_radius * math.cos(math.radians(angle))
-        end_y = self.wheel_center_y + self.wheel_radius * math.sin(math.radians(angle))
-        self.canvas.coords(self.pointer_line, self.wheel_center_x, self.wheel_center_y, end_x, end_y)
-        self.image_acquisition_thread._rotation_angle = angle
-
-        print(f"Camera rotation set to: {angle:.2f} degrees")
 
     def on_closing(self):
         """Handle the cleanup on closing the application."""

@@ -133,13 +133,17 @@ One issue we had was a really laggy window, regardless of whether the stage and 
 Hello! Are you tired of manually searching for monolayers, spending minutes on those spinny wheels just to find a speck of fluorescing hair strand? Look no further, we have the solution for you!
 
 Welcome to the Automatic Monolayer Finder (AMF). This software scans across your desired area of detection, taking photos and stitching them together to create a map of all your monolayers. The main function is found in the Main Control tab. Please follow the instructions below to use the AMF:
-1. Go to the Calibration tab and enter the desired focus.
-2. Go to the Main Control tab and move to your starting corner either manually or by entering the position in nm and click 'Corner 1'.
-3. Do the same for the ending corner and click 'Corner 2'.
+
+1. Go to the Calibration tab and set the focus magnitude of your lens then click AutoFocus. Further parameter adjustments can be made in 'Advanced Parameters'.
+2. Go to the Main Control tab and move to your starting corner in the top left either manually or by entering the position in nm and click 'Top Left'.
+3. Do the same for the ending corner in the bottom right and click 'Bottom Right'.
 4. Click 'Begin Search'. A live view of the progress will be shown.
 5. You're done!
 
-Once this is done you can head to the Results & Analysis tab where you will find useful features of your monolayers such as area and ...
+Once this is done you can head to the Results & Analysis tab where you will find the entire stitched image. This can be zoomed in on and panned around by dragging the mouse on the image. Double clicking on the image will magically move you to the position of the image under the microscope. You will also find a list `and useful features` of your monolayers `such as area` which can be clicked on and will also be magically displayed under the microscope.
+
+The live view image of the microscope can be navigated through the buttons found on the Mina Control tab or by clicking on the live view to the position you desire it to move to.
+
 
 ### Lachlan & Glen
 Today we combined the algortihm and GUI code. The GUI got a rework to have a theme and layout. Added a progress bar, live stitched view, and results view. We ran into an error with the corners which was caused by the end values being larger than the start values, this was introduced when we make the corners defined through the GUI and was later fixed.  
@@ -230,6 +234,19 @@ We showed Matt the progress of our project, highlighting all the new features we
 
 ### Glen
 
+I added an advanced parameter option allowing the configuration of several behind the scenes parameters in the GUI. Additionally I refined the focus and exposure routiene and bug fixed.
+
+# 27/09/2024
+
+### Glen
+- Speed
+- Binning
+- Rotation of view
+
+
+# 04/10/2024
+- Backup Image
+
 ### Remainder of the placement
 
 - [X] Add cat in a Santa hat
@@ -241,29 +258,38 @@ We showed Matt the progress of our project, highlighting all the new features we
 - [X] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
 - [X] Autofocus adapt to zoom
 - [X] Disable autofocus button when focusing
-- [ ] Allow adjustment of other config parameters in extra window
-- [ ] Add a threshold slider for monolayer detection
-- [ ] Allow zoom on the results image (and click to go to location)
-- [ ] Add more instructions to the GUI and redo layout as needed
-- [ ] Check all relavent buttons get disabled during potentially colliding processes
-- [ ] Refine quality parameters
+- [X] Allow adjustment of other config parameters in extra window
+~~- [ ] Add a threshold slider for monolayer detection~~
+- [X] Allow zoom on the results image (and click to go to location)
+- [X] Add more instructions to the GUI and redo layout as needed
 - [X] Add an intuitive click to move on the live view image
-- [ ] Tidy up our directory and to make it neater
-- [ ] Add a scale to the results (&live?) image
-- [ ] List the connected devices in the calibration tab (done on backend, needs GUI)
-- [ ] Add a save and load for settings etc.
+- [X] Tidy up our directory and to make it neater
+~~- [ ] List the connected devices in the calibration tab (done on backend, needs GUI)~~
 - [X] Add automatic focus adjustment (every n frames)
-- [ ] Give the window a logo and package it into a .exe if possible
-- [ ] Select Camera
-- [ ] Make larger ML outline
-- [ ] Rescale stichable image
+~~- [ ] Select Camera~~
+- [X] Rescale stichable image
+- [X] Make larger ML outline
+  
+- [X] Give the window a logo and package it into a .exe if possible
+- [ ] Add advanced parameters
+- [ ] Refine monolayer quality parameters
+- [ ] Documentation
+- [ ] Comment GUI
+- [ ] Add a scale to the results (&live?) image
+
+- [ ] Add a save and load for settings etc.
+- [ ] Check all relavent buttons get disabled during potentially colliding processes
+- [ ] Stop button
+- [ ] Autofocus bias towards the monolayer colour (focus when the color is found and determine if there is something to focus on using colour instead of intensity)
 
 
-Things to fix:  
+Things to fix:  (DONE 4/10/24)
 Still Jumping to random other parts  
 Still occasionally doesnt load camera  
 The corners need to be labeld so that it starts on a focusable part  
 FASTER!  
+
+
 
 
 Field Test:  
