@@ -146,8 +146,8 @@ The live view image of the microscope can be navigated through the buttons found
 
 
 ### Lachlan & Glen
-Today we combined the algortihm and GUI code. The GUI got a rework to have a theme and layout. Added a progress bar, live stitched view, and results view. We ran into an error with the corners which was caused by the end values being larger than the start values, this was introduced when we make the corners defined through the GUI and was later fixed.  
-We also did mechanical exfoliation to obtain hour own samples and tested our code, identifying issues and fixing it. We didnt observe any monolayers on our samples. We need to focus on getting the exposure automated for next week.
+Today we combined the algorithm and GUI code. The GUI got a rework to have a theme and layout. Added a progress bar, live stitched view, and results view. We ran into an error with the corners which was caused by the end values being larger than the start values, this was introduced when we make the corners defined through the GUI and was later fixed.  
+We also did mechanical exfoliation to obtain hour own samples and tested our code, identifying issues and fixing it. We didn't observe any monolayers on our samples. We need to focus on getting the exposure automated for next week.
 
 
 ### Next Week
@@ -169,9 +169,9 @@ We also did mechanical exfoliation to obtain hour own samples and tested our cod
 
 ### Lachlan & Glen
 
-Today we spent most of the day working on the lab report. We focused on the relavence (/introduction) section and the methods. We also added images of our first real monolayer detection test on an actual sample. We moved and rewrote sections of our report in LaTex (Overleaf) and included references and contents etc.
+Today we spent most of the day working on the lab report. We focused on the relevance (/introduction) section and the methods. We also added images of our first real monolayer detection test on an actual sample. We moved and rewrote sections of our report in LaTex (Overleaf) and included references and contents etc.
   
-We also performed our first test of the software on a real sample. This detection went quite well apart from needing to adjust values in the code to account for a different lens since we have not yet included this in the GUI. The code sucessfully scaned the section of the sample and identified several monolayers incluidng he main one of interest.
+We also performed our first test of the software on a real sample. This detection went quite well apart from needing to adjust values in the code to account for a different lens since we have not yet included this in the GUI. The code sucessfully scanned the section of the sample and identified several monolayers including he main one of interest.
 
 
 # 23/09/24
@@ -234,7 +234,7 @@ We showed Matt the progress of our project, highlighting all the new features we
 
 ### Glen
 
-I added an advanced parameter option allowing the configuration of several behind the scenes parameters in the GUI. Additionally I refined the focus and exposure routiene and bug fixed.
+I added an advanced parameter option allowing the configuration of several behind the scenes parameters in the GUI. Additionally I refined the focus and exposure routine and bug fixed. We found there was a major issue with the software becoming unresponsive at large scan sized. This is almost certainly due to the large image handling. We already process the images down but I believe that downscaling the images earlier in the process or using the camera hardware binning may be a fix for this. This will be next week.
 
 # 27/09/2024
 
@@ -243,11 +243,31 @@ I added an advanced parameter option allowing the configuration of several behin
 - Binning
 - Rotation of view
 
+Today I did a lot. The main issue I needed to solve was identified last week and was issues with computer power and memory for large scale scans. To combat this I tried to include hardware binning however the thorlabs camera does not provide a simple way to do this without impacting the colour processing. As a compromise I (with the help of ChatGPT, particular when optimising the performance) wrote custom software binning functions which would scale down the live image before it was passed to the other various functions. This was achieved by a combination of summing and averaging groups of nearby pixels to produce an image of lower resolution and higher exposure whist still preventing excess noise. This worked very well and in combination with some other minor changes the code was much faster, more responsive and CPU/RAM efficient. This took the majority of the day. I then added an option to rotate the live views by multiples of 90 degrees such that the camera lined up with the microscope. This required having to adjust the movement code to work at any rotation. This was particularly difficult and I ended up needed to use formulas incorporating modulo arithmetic and lists of direction coefficients for different rotations.
+
 
 # 04/10/2024
 - Backup Image
+- Better exposure binning
+- Testing and Bug fixing
+Today was mostly testing and many various bug fixes from the other week. This included adjusting the magnification logic to work again with the new resized images and enabling and disabling the exposure binning depending on the light levels. There was a glitch in one test where the code stopped unexpectedly half way through. As a simple backup measure added an image that is occasionally stored partway through a scan.
 
-### Remainder of the placement
+
+# 10/10/2024
+
+### Glen
+- Redid the LICENCE
+
+# 11/10/2024
+
+
+### Glen
+
+### Lachlan
+
+
+
+## Checklist of action items for the last few weeks
 
 - [X] Add cat in a Santa hat
 - [X] Add camera parameter adjustment (done on backend, needs GUI)
@@ -258,19 +278,21 @@ I added an advanced parameter option allowing the configuration of several behin
 - [X] Monolayer detection settings, so we can calibrate the detection for different materials (done on backend, needs GUI)
 - [X] Autofocus adapt to zoom
 - [X] Disable autofocus button when focusing
-- [X] Allow adjustment of other config parameters in extra window
-~~- [ ] Add a threshold slider for monolayer detection~~
+- [X] Allow adjustment of other config parameters in extra window  
+~~Add a threshold slider for monolayer detection~~  
 - [X] Allow zoom on the results image (and click to go to location)
 - [X] Add more instructions to the GUI and redo layout as needed
 - [X] Add an intuitive click to move on the live view image
-- [X] Tidy up our directory and to make it neater
-~~- [ ] List the connected devices in the calibration tab (done on backend, needs GUI)~~
-- [X] Add automatic focus adjustment (every n frames)
-~~- [ ] Select Camera~~
+- [X] Tidy up our directory and to make it neater  
+~~- List the connected devices in the calibration tab (done on backend, needs GUI)~~
+- [X] Add automatic focus adjustment (every n frames)  
+~~- Select Camera~~
 - [X] Rescale stichable image
 - [X] Make larger ML outline
   
-- [X] Give the window a logo and package it into a .exe if possible
+- [X] Give the window a logo and ~~package it into a .exe if possible~~
+- [ ] Redo environment.yml
+- [ ] Instructions in the README
 - [ ] Add advanced parameters
 - [ ] Refine monolayer quality parameters
 - [ ] Documentation
@@ -278,20 +300,16 @@ I added an advanced parameter option allowing the configuration of several behin
 - [ ] Add a scale to the results (&live?) image
 
 - [ ] Add a save and load for settings etc.
-- [ ] Check all relavent buttons get disabled during potentially colliding processes
+- [ ] Check all relevant buttons get disabled during potentially colliding processes
 - [ ] Stop button
 - [ ] Autofocus bias towards the monolayer colour (focus when the color is found and determine if there is something to focus on using colour instead of intensity)
 
+**GET RESULTS FOR REPORT**
 
-Things to fix:  (DONE 4/10/24)
+
+Things to fix:  (DONE 4/10/24)  
 Still Jumping to random other parts  
-Still occasionally doesnt load camera  
-The corners need to be labeld so that it starts on a focusable part  
+Still occasionally doesn't load camera  
+The corners need to be labeled so that it starts on a focusable part  
 FASTER!  
 
-
-
-
-Field Test:  
-14.15 - Clean room  
-14.45 - Leave cleanroom with 6 PDMS (exfolation WSe2)
