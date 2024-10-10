@@ -506,6 +506,8 @@ class ImageDisplay:
         # Add a save button
         save_button = tk.Button(self.tab4, text="Save Image", command=self.save_canvas_as_image)
         save_button.pack()
+
+        self.file_path = None
         ############################################## End
 
         ############################################## Start for scale code
@@ -552,17 +554,13 @@ class ImageDisplay:
     ############################################# Save file part 2
     def save_canvas_as_image(self):
         # Get the location to save the file
-        file_path = filedialog.asksaveasfilename(defaultextension=".png", 
+        self.file_path = filedialog.asksaveasfilename(defaultextension=".png", 
                                                 filetypes=[("PNG files", "*.png"), 
                                                             ("All files", "*.*")])
-        if file_path:
-            # Save the canvas to a postscript file first
-            self.example_canvas.postscript(file="temp_canvas.ps", colormode='color')
-            
-            # Use PIL to open the postscript file and save as an image
-            img = Image.open("temp_canvas.ps")
-            img.save(file_path)
-            print(f"Saved image at: {file_path}")
+        if self.file_path:
+            print(f"Selected file path: {self.file_path}")
+        else:
+            print("No file path selected.")
     ############################################## End
 
     ############################################## Scale part 2
