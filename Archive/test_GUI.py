@@ -4,7 +4,7 @@ from tkinter import font as tkFont
 import random
 import math
 import warnings
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageDraw, ImageTk, ImageGrab
 import numpy as np
 from matplotlib.backends.backend_tkagg import (
     FigureCanvasTkAgg, NavigationToolbar2Tk)
@@ -495,7 +495,22 @@ class ImageDisplay:
         # Bind the mouse click event
         self.image_canvas_move.bind("<Button-1>", self._on_click)
 
-        ############################################## Start
+        ############################################## Start for save file
+        # Create a canvas
+        self.example_canvas = tk.Canvas(self.tab4, width=400, height=400, bg='white')
+        self.example_canvas.pack()
+
+        # Draw something on the canvas (example: a rectangle)
+        self.example_canvas.create_rectangle(50, 50, 300, 300, fill="blue")
+
+        # Add a save button
+        save_button = tk.Button(self.tab4, text="Save Image", command=self.save_canvas_as_image)
+        save_button.pack()
+
+        self.file_path = None
+        ############################################## End
+
+        ############################################## Start for scale code
         # Create the tick scale canvas
         self.tick_width = 600
         self.tick_height = 100
@@ -536,7 +551,19 @@ class ImageDisplay:
 
         self.create_360_wheel()
 
-    ##############################################
+    ############################################# Save file part 2
+    def save_canvas_as_image(self):
+        # Get the location to save the file
+        self.file_path = filedialog.asksaveasfilename(defaultextension=".png", 
+                                                filetypes=[("PNG files", "*.png"), 
+                                                            ("All files", "*.*")])
+        if self.file_path:
+            print(f"Selected file path: {self.file_path}")
+        else:
+            print("No file path selected.")
+    ############################################## End
+
+    ############################################## Scale part 2
     def draw_scale(self, pixels_per_nm):
         # Parameters for the scale
         tick_length = 10  # Length of the major ticks
@@ -678,11 +705,8 @@ class ImageDisplay:
     #         # If the input is invalid, set the entry back to the default value
     #         self.pixels_per_nm_entry.delete(0, tk.END)
     #         self.pixels_per_nm_entry.insert(0, str(self.pixels_per_nm))
-        
-        # Redraw the scale with the new pixels_per_nm value
-        self.draw_scale(self.pixels_per_nm)
 
-    ##############################################
+    ############################################## End
 
     def _on_click(self, event):
         """ Handle a mouse click to move the image """
