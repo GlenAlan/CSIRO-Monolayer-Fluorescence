@@ -1,0 +1,52 @@
+License Agreement for Automatic Monolayer Finder and associated Software for the automatic detection of 2D Material monolayers using fluorescence microscopy.
+
+Copyright (c) 2024, Commonwealth Scientific and Industrial Research Organisation (CSIRO), Glen Alan Pearce, and Lachlan Catto
+
+This software was developed by Glen Alan Pearce and Lachlan Catto in collaboration with CSIRO. The software facilitates the automated detection of 2D material monolayers using fluorescence microscopy techniques.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal with the Software for non-commercial purposes, including the rights to use, copy, modify, merge, and distribute the Software, subject to the following conditions:
+
+1. Attribution and Inclusion of License
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. Proper attribution must be provided to CSIRO, Glen Alan Pearce, and Lachlan Catto, including any citations in publications, presentations, or derivative works based on the Software.
+
+2. Respect for CSIRO Intellectual Property (IP)
+The Software incorporates intellectual property developed by CSIRO. Any commercial use of the Software, or any derivatives thereof, must first obtain written permission from CSIRO to ensure compliance with CSIRO’s intellectual property policies. Commercial use includes, but is not limited to, selling, licensing, or embedding the Software into commercial products or services.
+
+Non-commercial use, including research, educational, and personal purposes, is allowed without requiring further permission, provided that appropriate attribution is given to CSIRO, Glen Alan Pearce, and Lachlan Catto.
+
+3. Incorporation and Use of Thorlabs Scientific Imaging SDK (TSI SDK)
+The Software includes components from the Thorlabs Scientific Imaging SDK (TSI SDK), which is subject to a separate license governed by Thorlabs, Inc. Users must comply with the Thorlabs Scientific Imaging SDK License Agreement in addition to this License. The key terms governing the use of the TSI SDK are as follows:
+
+a. Non-Exclusive, Limited License:
+The TSI SDK may be used only in connection with the operation of Thorlabs scientific imaging equipment and for the purpose of developing or modifying proprietary software. Redistribution of the TSI SDK in source code form is strictly prohibited.
+
+b. Creation of Derivative Works:
+Users may create modifications or derivative works of the TSI SDK, but such modifications may only be distributed in object code form as part of the user's proprietary software ("Customer Software") used with Thorlabs equipment.
+
+c. Prohibited Uses:
+- Reverse engineering, decompiling, or disassembling the TSI SDK is prohibited, except as explicitly permitted by law.
+- The TSI SDK or any derivative thereof may not be used in competition with Thorlabs products.
+- Users are prohibited from sublicensing or transferring the TSI SDK except as allowed under this License.
+
+d. Compliance with Thorlabs SDK License:
+Users are responsible for ensuring that their use, modification, and distribution of the Software complies with the Thorlabs Scientific Imaging SDK License Agreement.
+
+4. Disclaimer of Warranties and Limitation of Liability
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. CSIRO, Glen Alan Pearce, Lachlan Catto, and Thorlabs make no warranties regarding the performance, functionality, or security of the Software, and expressly disclaim any liability for damages arising from the use or inability to use the Software.
+
+IN NO EVENT SHALL CSIRO, GLEN ALAN PEARCE, LACHLAN CATTO, OR THORLABS BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING OUT OF OR RELATED TO THE USE OR PERFORMANCE OF THE SOFTWARE, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, BUSINESS INTERRUPTION, OR LOSS OF DATA, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. The total aggregate liability of CSIRO, Glen Alan Pearce, Lachlan Catto, or Thorlabs for any claims related to the Software shall not exceed the amount paid by the user for the Software.
+
+5. Export Control and Compliance with Applicable Laws
+The Software, including any third-party SDKs or components such as the TSI SDK, may be subject to export control laws. Users agree to comply with all applicable laws and regulations regarding the export and use of the Software, including restrictions related to the export of the TSI SDK to certain countries or for prohibited purposes, such as nuclear, chemical, or biological weapons development.
+
+6. Termination of License
+This License shall remain in effect until terminated. The rights granted under this License will automatically terminate if the user fails to comply with any of its terms. Upon termination, the user must immediately cease all use of the Software and destroy any copies in their possession.
+
+7. Commercialization of Software
+Any commercial use of the Software, including selling, licensing, or integrating it into commercial products or services, is prohibited without prior written consent from CSIRO. Users seeking to commercialize the Software should contact CSIRO to obtain the necessary permissions and licenses.
+
+8. Governing Law and Jurisdiction
+This License shall be governed by and construed in accordance with the laws of Australia. Any disputes arising out of or related to this License shall be subject to the exclusive jurisdiction of the courts of Australia. Provisions related to the Thorlabs SDK may also be governed by the laws of the State of New Jersey, U.S.A., in accordance with the Thorlabs SDK License Agreement.
+
+9. Entire Agreement
+This License constitutes the entire agreement between the user and CSIRO, Glen Alan Pearce, and Lachlan Catto with respect to the Software and supersedes all prior agreements, communications, or understandings, whether written or oral, relating to the Software. Any amendments to this License must be made in writing and signed by an authorized representative of CSIRO.
