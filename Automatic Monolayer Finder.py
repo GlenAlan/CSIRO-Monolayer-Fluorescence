@@ -150,7 +150,7 @@ def scale_down_canvas(canvas, scale_factor):
         return downsampled_canvas
 
 
-def save_image(image, filename, scale_down_factor=1, timestamp=True):
+def save_image(image, filename, scale_down_factor=1, timestamp=True, subfolder=None):
     """
     Saves an image to a file after optionally scaling it down.
 
@@ -159,14 +159,27 @@ def save_image(image, filename, scale_down_factor=1, timestamp=True):
         filename (str): The name of the file to save the image to.
         scale_down_factor (int, optional): The factor by which to scale down the image before saving. 
                                            Defaults to 1 (no scaling).
+        subfolder (str, optional): A subfolder within IMAGE_SAVE_PATH to save the image to.
 
     Returns:
         None
     """
-    file, ending = filename.split(".")
-    if timestamp:
-        filename = file + datetime.now().strftime("_%Y-%m-%d_%H%M%S") + "." + ending
+    # Construct the save path
+    save_path = config.IMAGE_SAVE_PATH
+    if subfolder:
+        save_path = os.path.join(save_path, subfolder)
 
+    # Ensure the directory exists
+    os.makedirs(save_path, exist_ok=True)
+
+     # Create the full filename
+    if timestamp:
+        file, ending = os.path.splitext(filename)
+        filename = os.path.join(save_path, file + datetime.now().strftime("_%Y-%m-%d_%H%M%S") + ending)
+    else:
+        filename = os.path.join(save_path, filename)
+
+    # Save the image
     cv2.imwrite(filename, scale_down_canvas(image, scale_down_factor))
     print(format_size(os.path.getsize(filename)))
 
@@ -1427,7 +1440,7 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
 
             save_counter += 1
             if save_counter > config.SAVE_EVERY_N_FRAMES:
-                threading.Thread(target=lambda: save_image(canvas, "Images/backup_image.png", 4, False), daemon=True).start()
+                threading.Thread(target=lambda: save_image(canvas, f"backup_image.png", 4, False), daemon=True).start()
                 save_counter = 0
 
 
@@ -1437,7 +1450,7 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
 
     print("Saving final image...")
 
-    save_image(canvas, "Images/final_scan.png", 2)
+    save_image(canvas, f"final_scan.png", 2)
 
     print("Save complete")
 
@@ -1448,7 +1461,7 @@ def stitch_and_display_images(gui, frame_queue, start, end, stitched_view_canvas
     config.canvas = canvas
 
     if config.SAVE_RAW_IMAGE:
-        threading.Thread(target=lambda: save_image(canvas, "Images/RAW.png"), daemon=True).start()
+        threading.Thread(target=lambda: save_image(canvas, f"RAW.png"), daemon=True).start()
 
     # Pass the final stitched image to the post processing function
     post_processing(gui, canvas)
@@ -1556,7 +1569,7 @@ def post_processing(gui, canvas):
     # Save and display the final processed image with highlighted monolayers
     gui.root.after(0, lambda: gui.update_progress(97, "Saving final images..."))
     print("Saving image with monolayers...")
-    save_image(contour_image, "Images/highlighted_monolayers.png", 1)
+    save_image(contour_image, "highlighted_monolayers.png", 1)
     print("Saved!")
 
     # Filter out small monolayers and sort the remaining by area
@@ -1570,7 +1583,8 @@ def post_processing(gui, canvas):
     # Print detailed information about each monolayer
     for i, layer in enumerate(monolayers):
         print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position},  Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
-        # cv2.imwrite(f"Images/Monolayers/{i+1}.png", layer.image)
+        if config.SAVE_MONOLAYER_IMAGES:
+            save_image(layer.image, f"{i+1}.png", timestamp=False, subfolder="Monolayers"+str(datetime.now().strftime("_%Y-%m-%d_%H%M%S")))
 
     # Final progress update
     gui.root.after(0, lambda: gui.update_progress(100, "Scan Complete!"))
@@ -2560,6 +2574,7 @@ class GUI:
         self.create_controls()
         self.create_lens_selector()
         self.create_auto_focus()
+        self.save_monolayer_checkbox()
 
         advanced_settings_button = tk.Button(
             self.calibration_frame_controls,
@@ -3042,6 +3057,39 @@ class GUI:
     def toggle_auto_focus(self):
         config.AUTOFOCUS = self.auto_focus_on.get()
         print(f"Auto focus set to: {config.AUTOFOCUS}")
+
+
+    def save_monolayer_checkbox(self):
+
+        auto_focus_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
+        auto_focus_frame.grid(row=2, column=3, columnspan=2, padx=10, pady=10, sticky='nsew')
+
+
+        self.save_ML = tk.BooleanVar(value=config.SAVE_MONOLAYER_IMAGES) 
+
+        # Checkbutton for enabling/disabling auto focus
+        self.auto_focus_checkbox = tk.Checkbutton(
+            auto_focus_frame,
+            text="Save Monolayer Images",
+            variable=self.save_ML,
+            command=self.toggle_save_monolayer,
+            onvalue=True, 
+            offvalue=False, 
+            height=2, 
+            width=20,
+            bg=config.THEME_COLOR,
+            fg=config.TEXT_COLOR, 
+            font=config.LABEL_FONT,
+            activebackground=config.THEME_COLOR,
+            selectcolor=config.THEME_COLOR,
+        )
+        self.auto_focus_checkbox.grid(row=0, column=0, padx=5, pady=5)
+
+        config.SAVE_MONOLAYER_IMAGES = self.save_ML.get()
+
+    def toggle_save_monolayer(self):
+        config.SAVE_MONOLAYER_IMAGES = self.save_ML.get()
+        print(f"Save ML image set to: {config.SAVE_MONOLAYER_IMAGES}")
 
 
     def update_lens(self, event=None):
