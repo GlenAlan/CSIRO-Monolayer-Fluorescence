@@ -10,7 +10,7 @@ Hello! Are you tired of manually searching for monolayers, spending hours on tho
 
 Welcome to the Automatic Monolayer Finder (AMF). This software scans across your desired area of detection, taking photos and stitching them together to create a map of all your monolayers. The main function is found in the Main Control tab. Please follow the instructions below to use the AMF:
 
-1. Go to the Calibration tab and set the focus magnitude of your lens (making sure to press Enter on your keyboard) then click AutoExpose. An option for AutoFocus is also available if required. Further parameter adjustments can be made in 'Advanced Parameters'.
+1. Go to the Calibration tab and set the focus magnitude of your lens (making sure to press Enter on your keyboard) then click 'Auto Expose'. Aftr that, click 'Auto Focus' to obtain the initial focus. An option for AutoFocus during the scan is also available if required which can be activated with the 'Auto Focus Enabled' tickbox. Further parameter adjustments can be made in 'Advanced Parameters'.
 2. Go to the Main Control tab and move to your starting corner in the top left either with the navigation buttons or manually and click 'Top Left' at the top of the screen.
 3. Do the same for the ending corner in the bottom right and click 'Bottom Right' at the top of the screen.
 4. Click 'Begin Search'. A live view of the progress will be shown.
