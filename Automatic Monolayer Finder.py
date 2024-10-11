@@ -150,7 +150,7 @@ def scale_down_canvas(canvas, scale_factor):
         return downsampled_canvas
 
 
-def save_image(image, filename, scale_down_factor=1, timestamp=True, subfolder=None):
+def save_image(image, filename, scale_down_factor=1, timestamp=True, subfolder=None, rotate=True):
     """
     Saves an image to a file after optionally scaling it down.
 
@@ -164,6 +164,8 @@ def save_image(image, filename, scale_down_factor=1, timestamp=True, subfolder=N
     Returns:
         None
     """
+    if rotate:
+        image = cv2.rotate(image, view_num_to_rotation_cv[config.VIEW_ROTATION % 4])
     # Construct the save path
     save_path = config.IMAGE_SAVE_PATH
     if subfolder:
@@ -1525,6 +1527,8 @@ def post_processing(gui, canvas):
 
     larger_contours = []
 
+    j = 0
+
     for i, contour in enumerate(contours):
         # Get the bounding box around each monolayer
         x, y, w, h = cv2.boundingRect(contour)
@@ -1544,11 +1548,47 @@ def post_processing(gui, canvas):
             image_section = cv2.rotate(image_section, rotation)
 
         # Create a Monolayer object and store it
-        monolayers.append(Monolayer(contour, image_section, (x_start, y_start)))
+        layer = Monolayer(contour, image_section, (x_start, y_start))
+        if layer.area_um >= config.POST_PROCESSING_DOWNSCALE:
+            layer.index = j
+            monolayers.append(layer)
+            j += 1
 
-        # Draw a marker at the center of the monolayer
-        cx, cy = monolayers[-1].position
-        contour_image = cv2.circle(contour_image, (cx, cy), config.MONOLAYER_DOT_SIZE, color=(0, 0, 0, 255), thickness=-1)
+            # Draw a marker at the center of the monolayer
+            cx, cy = layer.position
+            circle_size = 38
+            contour_image = cv2.circle(contour_image, (cx, cy), circle_size, color=(255, 255, 255, 255), thickness=2)
+            
+            rotation_type = view_num_to_rotation_cv[-config.VIEW_ROTATION % 4]
+
+            font_scale = circle_size / 50
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            text = str(j)
+
+            # Get text size
+            text_size = cv2.getTextSize(text, font, font_scale, thickness=1)[0]
+
+            # Create a blank RGBA image for the text
+            text_image = np.zeros((text_size[1] + 10, text_size[0] + 10, 4), dtype=np.uint8)
+            cv2.putText(text_image, text, (5, text_size[1] + 5), font, font_scale, (255, 255, 255, 255), thickness=2)
+
+            # Rotate the text image if a rotation is specified
+            if rotation_type is not None:
+                rotated_text_image = cv2.rotate(text_image, rotation_type)
+            else:
+                rotated_text_image = text_image
+
+            # Get the position to place the rotated text
+            text_x = int(cx - rotated_text_image.shape[1] // 2)
+            text_y = int(cy - circle_size // 2 + rotated_text_image.shape[0] // 2)
+
+            # Overlay the rotated text onto the contour image while preserving alpha
+            for c in range(0, 3):  # For R, G, B channels
+                contour_image[text_y:text_y + rotated_text_image.shape[0], text_x:text_x + rotated_text_image.shape[1], c] = (
+                    rotated_text_image[:, :, c] * (rotated_text_image[:, :, 3] / 255.0) + 
+                    contour_image[text_y:text_y + rotated_text_image.shape[0], text_x:text_x + rotated_text_image.shape[1], c] * (1 - rotated_text_image[:, :, 3] / 255.0)
+                )
+
 
         # Scale up the contours if necessary and draw them on the canvas
         if config.MONOLAYER_OUTLINE_SCALE != 1:
@@ -1572,8 +1612,7 @@ def post_processing(gui, canvas):
     save_image(contour_image, "highlighted_monolayers.png", 1)
     print("Saved!")
 
-    # Filter out small monolayers and sort the remaining by area
-    monolayers = [layer for layer in monolayers if layer.area_um >= config.POST_PROCESSING_DOWNSCALE]
+    # Sort by area
     monolayers.sort(key=operator.attrgetter('area'), reverse=True)
 
     # Display the results in the GUI
@@ -1584,7 +1623,7 @@ def post_processing(gui, canvas):
     for i, layer in enumerate(monolayers):
         print(f"{i+1}: Area: {layer.area_um:.0f} um^2,  Centre: {layer.position},  Entropy: {layer.smoothed_entropy:.2f}, TV Norm: {layer.total_variation_norm:.2f}, Local Intensity Variance: {layer.local_intensity_variance:.2f}, CNR: {layer.contrast_to_noise_ratio:.2f}, Skewness: {layer.skewness:.2f}")
         if config.SAVE_MONOLAYER_IMAGES:
-            save_image(layer.image, f"{i+1}.png", timestamp=False, subfolder="Monolayers"+str(datetime.now().strftime("_%Y-%m-%d_%H%M%S")))
+            save_image(layer.image, f"{layer.index}.png", timestamp=False, subfolder="Monolayers"+str(datetime.now().strftime("_%Y-%m-%d_%H%M%S")), rotate=False)
 
     # Final progress update
     gui.root.after(0, lambda: gui.update_progress(100, "Scan Complete!"))
@@ -1870,6 +1909,7 @@ class Monolayer:
     
     def __init__(self, contour, image, pos):
         self.image = image
+        self.index = None
         self.global_contour = contour
         x_start, y_start = pos  # The starting position of the contour in the global image
         
@@ -2388,7 +2428,7 @@ class GUI:
                 widget.destroy()
 
             # Define columns
-            columns = ('Area (um^2)', 'Centre', 'Entropy', 'TV Norm', 'Intensity Variance', 'CNR', 'Skewness', 'Index')
+            columns = ('Index', 'Area (um^2)', 'Centre', 'Entropy', 'TV Norm', 'Intensity Variance', 'CNR', 'Skewness')
             visible_rows = 3 # Increased number of visible rows for taller Treeview
 
             # Create a frame to hold the Treeview and scrollbar
@@ -2436,6 +2476,7 @@ class GUI:
 
             # Setup column headings
             tree.heading('#0', text='Image')  # Renamed for clarity
+            tree.heading('Index', text='Index')
             tree.heading('Area (um^2)', text='Area (um^2)')
             tree.heading('Centre', text='Centre')
             tree.heading('Entropy', text='Entropy')
@@ -2443,18 +2484,16 @@ class GUI:
             tree.heading('Intensity Variance', text='Intensity Variance')
             tree.heading('CNR', text='CNR')
             tree.heading('Skewness', text='Skewness')
-            tree.heading('Index', text='Index')
 
             # Define column widths and alignment
             tree.column('#0', width=120, anchor='center')  # Increased width to 120
-            tree.column('Area (um^2)', width=100, anchor='center')
+            tree.column('Index', width=50, anchor='center')
             tree.column('Centre', width=100, anchor='center')
             tree.column('Entropy', width=100, anchor='center')
             tree.column('TV Norm', width=100, anchor='center')
             tree.column('Intensity Variance', width=150, anchor='center')
             tree.column('CNR', width=100, anchor='center')
             tree.column('Skewness', width=100, anchor='center')
-            tree.column('Index', width=0, stretch=False)  # Hide the index column
 
             # Create a vertical scrollbar
             vsb = ttk.Scrollbar(
@@ -2480,6 +2519,7 @@ class GUI:
                 self.image_references.append(photo)
 
                 tree.insert("", "end", image=photo, values=(
+                    f"{monolayer.index}",
                     f"{monolayer.area_um:.2f}",
                     f"{monolayer.position}",
                     f"{monolayer.smoothed_entropy:.2f}",
@@ -2496,7 +2536,7 @@ class GUI:
                 if not selected_items:
                     return
                 selected_item = selected_items[0]
-                monolayer_index = int(tree.item(selected_item, 'values')[7])
+                monolayer_index = int(tree.item(selected_item, 'values')[8])
                 monolayer = monolayers[monolayer_index]
                 move(self.stage_controller, image_to_stage(monolayer.position, config.start_pos), wait=False)
                 print(f"Selected monolayer at index {monolayer_index}, position {monolayer.position}")
@@ -2576,6 +2616,9 @@ class GUI:
         self.create_auto_focus()
         self.save_monolayer_checkbox()
 
+        save_button = tk.Button(self.calibration_frame_controls, text="Image Save Path", command=self.save_canvas_as_image, bg=config.BUTTON_COLOR, fg=config.TEXT_COLOR, font=config.LABEL_FONT, width=15, height=2)
+        save_button.grid(row=2, column=3, padx=5, pady=5, sticky='n')
+
         advanced_settings_button = tk.Button(
             self.calibration_frame_controls,
             text="Advanced Settings",
@@ -2598,6 +2641,16 @@ class GUI:
             command=self.show_cat_image,
         )
         self.cat_button.grid(row=99, column=0, sticky='se')
+
+
+    def save_canvas_as_image(self):
+        # Get the location to save the file
+        config.IMAGE_SAVE_PATH = filedialog.askdirectory(title="Select Output Folder")
+
+        if not config.IMAGE_SAVE_PATH:
+            print("No folder selected. Please select a valid folder.")
+        else:
+            print(f"Images will be saved to: {config.IMAGE_SAVE_PATH}")
 
 
     def show_cat_image(self):
@@ -3062,7 +3115,7 @@ class GUI:
     def save_monolayer_checkbox(self):
 
         auto_focus_frame = tk.Frame(self.calibration_frame_controls, bg=config.THEME_COLOR)
-        auto_focus_frame.grid(row=2, column=3, columnspan=2, padx=10, pady=10, sticky='nsew')
+        auto_focus_frame.grid(row=2, column=4, columnspan=1, padx=5, pady=5, sticky='n')
 
 
         self.save_ML = tk.BooleanVar(value=config.SAVE_MONOLAYER_IMAGES) 
