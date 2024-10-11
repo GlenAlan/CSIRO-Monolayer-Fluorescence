@@ -129,22 +129,6 @@ One issue we had was a really laggy window, regardless of whether the stage and 
 
 # 06/09/24
 
-### Instructions for GUI
-Hello! Are you tired of manually searching for monolayers, spending minutes on those spinny wheels just to find a speck of fluorescing hair strand? Look no further, we have the solution for you!
-
-Welcome to the Automatic Monolayer Finder (AMF). This software scans across your desired area of detection, taking photos and stitching them together to create a map of all your monolayers. The main function is found in the Main Control tab. Please follow the instructions below to use the AMF:
-
-1. Go to the Calibration tab and set the focus magnitude of your lens then click AutoFocus. Further parameter adjustments can be made in 'Advanced Parameters'.
-2. Go to the Main Control tab and move to your starting corner in the top left either manually or by entering the position in nm and click 'Top Left'.
-3. Do the same for the ending corner in the bottom right and click 'Bottom Right'.
-4. Click 'Begin Search'. A live view of the progress will be shown.
-5. You're done!
-
-Once this is done you can head to the Results & Analysis tab where you will find the entire stitched image. This can be zoomed in on and panned around by dragging the mouse on the image. Double clicking on the image will magically move you to the position of the image under the microscope. You will also find a list `and useful features` of your monolayers `such as area` which can be clicked on and will also be magically displayed under the microscope.
-
-The live view image of the microscope can be navigated through the buttons found on the Mina Control tab or by clicking on the live view to the position you desire it to move to.
-
-
 ### Lachlan & Glen
 Today we combined the algorithm and GUI code. The GUI got a rework to have a theme and layout. Added a progress bar, live stitched view, and results view. We ran into an error with the corners which was caused by the end values being larger than the start values, this was introduced when we make the corners defined through the GUI and was later fixed.  
 We also did mechanical exfoliation to obtain hour own samples and tested our code, identifying issues and fixing it. We didn't observe any monolayers on our samples. We need to focus on getting the exposure automated for next week.
@@ -265,7 +249,9 @@ Today was mostly testing and many various bug fixes from the other week. This in
 
 ### Lachlan
 
+One thing to implement for usability of the program was a save button. The final image needed to be saved so that the material could be easily located in future. The images were already being saved, I just needed to implement a browsing button to choose the folder which saved the final image and other various images. I ran into the problem of requiring Ghostscript to be installed to save the canvas images. I solved this by using the save file function already found the code and replacing it with an askdirectory function instead. I also completed the instructions for the GUI after all the updates had been made.
 
+This concludes the 2024 AMF project at CSIRO!
 
 ## Checklist of action items for the last few weeks
 
