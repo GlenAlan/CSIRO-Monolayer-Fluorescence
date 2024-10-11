@@ -246,6 +246,7 @@ Today was mostly testing and many various bug fixes from the other week. This in
 
 
 ### Glen
+Wrapping up the project, bug fixing and implementing a final few features an getting results. Matt added some extra move buttons and a scale. Final things I worked on included quick bugs fixes, numbered monolayers (this involved calibrating for the view rotation again) and rotating the saved image. Additionally implementing an adjustble file path for the image saving. I also wrote down ideas and future improvements to share with Matt and the team. Finally we used the software to gather results.
 
 ### Lachlan
 
@@ -277,14 +278,15 @@ This concludes the 2024 AMF project at CSIRO!
 - [X] Make larger ML outline
   
 - [X] Give the window a logo and ~~package it into a .exe if possible~~
-- [ ] Redo environment.yml
-- [ ] Instructions in the README
-- [ ] Add advanced parameters
-- [ ] Refine monolayer quality parameters
-- [ ] Documentation
-- [ ] Comment GUI
+- [X] Redo environment.yml
+- [X] Instructions in the README
+- [ ] Add advanced parameters  
+~~Refine monolayer quality parameters~~  
+- [X] Documentation  
+~~Comment GUI~~  
 - [ ] Add a scale to the results (&live?) image
 
+For others:
 - [ ] Add a save and load for settings etc.
 - [ ] Check all relevant buttons get disabled during potentially colliding processes
 - [ ] Stop button
