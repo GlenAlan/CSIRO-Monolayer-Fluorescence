@@ -460,8 +460,7 @@ class ImageDisplay:
         self.root.rowconfigure([0, 1], minsize=50)
 
         # Image handling
-        self.image_path = "Images/highresphoto.jpg"  # Replace with your image path
-        self.original_image = Image.open(self.image_path)  # Get the image from file
+        self.original_image = Image.open(image_path)  # Get the image from file
         self.imwidth, self.imheight = self.original_image.size  # Original image dimensions
 
         # Canvas for displaying images
@@ -495,7 +494,6 @@ class ImageDisplay:
         # Bind the mouse click event
         self.image_canvas_move.bind("<Button-1>", self._on_click)
 
-        ############################################## Start for save file
         # Create a canvas
         self.example_canvas = tk.Canvas(self.tab4, width=400, height=400, bg='white')
         self.example_canvas.pack()
@@ -508,7 +506,6 @@ class ImageDisplay:
         save_button.pack()
 
         self.file_path = None
-        ############################################## End
 
         ############################################## Start for scale code
         # Create the tick scale canvas
@@ -551,7 +548,6 @@ class ImageDisplay:
 
         self.create_360_wheel()
 
-    ############################################# Save file part 2
     def save_canvas_as_image(self):
         # Get the location to save the file
         self.file_path = filedialog.asksaveasfilename(defaultextension=".png", 
@@ -561,7 +557,6 @@ class ImageDisplay:
             print(f"Selected file path: {self.file_path}")
         else:
             print("No file path selected.")
-    ############################################## End
 
     ############################################## Scale part 2
     def draw_scale(self, pixels_per_nm):
@@ -995,7 +990,7 @@ class ImageDisplay:
 
 # Start the Tkinter event loop
 if __name__ == "__main__":
-    image_path = 'Images/highresphoto.jpg'  # place path to your image here
+    image_path = 'assets\cat0.webp' # place path to your image here
     root = tk.Tk()
     poo = ImageDisplay(root)
     # app = Zoom_Advanced(poo.zoom_frame, path=image_path)
