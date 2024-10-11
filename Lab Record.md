@@ -249,7 +249,9 @@ Today was mostly testing and many various bug fixes from the other week. This in
 
 ### Lachlan
 
+One thing to implement for usability of the program was a save button. The final image needed to be saved so that the material could be easily located in future. The images were already being saved, I just needed to implement a browsing button to choose the folder which saved the final image and other various images. I ran into the problem of requiring Ghostscript to be installed to save the canvas images. I solved this by using the save file function already found the code and replacing it with an askdirectory function instead. I also completed the instructions for the GUI after all the updates had been made.
 
+This concludes the 2024 AMF project at CSIRO!
 
 ## Checklist of action items for the last few weeks
 
