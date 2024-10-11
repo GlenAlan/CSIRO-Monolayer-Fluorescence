@@ -4,7 +4,7 @@ An algorithm to scan and identify monolayers by fluorescence microscopy using Th
 If running on a new device firstly run:
 `conda env create -f environment.yml`  
 
-And if using a NVIDEA GPU:
+And if using a NVIDIA GPU:
 `conda install pytorch torchvision torchaudio cudatoolkit=11.8 -c pytorch -c nvidia`
 
 ### Instructions for General Use
@@ -12,7 +12,7 @@ Hello! Are you tired of manually searching for monolayers, spending hours on tho
 
 Welcome to the Automatic Monolayer Finder (AMF). This software scans across your desired area of detection, taking photos and stitching them together to create a map of all your monolayers. The main functionality is contained within the *Main Control* tab. Please follow the instructions below to use the AMF:
 
-1. Go to the Calibration tab and set the magnification of your lens (making sure to press Enter on your keyboard). Place the material on the stage and click 'Auto Expose' if the exposure needs further ajusting. Aftr that locate a section of the sample and click 'Auto Focus'. The checkbox 'Auto Focus Enabled' enables or disables the automatic focus during a scan. Other parameters such as the image save directory, monolayer colour and camera rotation can be altered and further parameter adjustments can be made in 'Advanced Parameters'.
+1. Go to the Calibration tab and set the magnification of your lens (making sure to press Enter on your keyboard). Place the material on the stage and click 'Auto Expose' if the exposure needs further adjusting. After that, locate a section of the sample and click 'Auto Focus'. The checkbox 'Auto Focus Enabled' enables or disables the automatic focus during a scan. Other parameters such as the image save directory, monolayer colour and camera rotation can be altered and further parameter adjustments can be made in 'Advanced Parameters'.
 2. Go to the Main Control tab and move to the top bottom right corner, either with the navigation buttons, by clicking the live view or with the thorlabs stage control. Then click 'Bottom Right' at the top of the screen to define the corner. This is where the scan will start so ensure there is material within view and it is within focus.
 3. Do the same for the ending corner in the top left and click 'Top Left' at the top of the screen.
 4. Click 'Begin Search'. A live view of the progress will be shown.
